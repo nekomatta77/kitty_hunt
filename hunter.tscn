@@ -1,0 +1,78 @@
+[gd_scene format=3 uid="uid://bg3tsevb2ejqq"]
+
+[ext_resource type="Script" uid="uid://cpegxs6vtjgxf" path="res://hunter.gd" id="1_h1phl"]
+[ext_resource type="Texture2D" uid="uid://btasbke2wkctg" path="res://icon.svg" id="2_hgowg"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_ukqli"]
+
+[sub_resource type="SceneReplicationConfig" id="SceneReplicationConfig_h1phl"]
+properties/0/path = NodePath(".:position")
+properties/0/spawn = true
+properties/0/replication_mode = 1
+properties/1/path = NodePath(".:rotation")
+properties/1/spawn = true
+properties/1/replication_mode = 1
+
+[node name="Hunter" type="CharacterBody3D" unique_id=769471397]
+script = ExtResource("1_h1phl")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=807091213]
+shape = SubResource("CapsuleShape3D_ukqli")
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=2129464917]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5294558, 0)
+
+[node name="RayCast3D" type="RayCast3D" parent="Camera3D" unique_id=1872034259]
+target_position = Vector3(0, 0, -50)
+
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1537173846]
+
+[node name="ColorRect" type="ColorRect" parent="CanvasLayer" unique_id=1373696976]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -20.0
+offset_top = -20.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_horizontal = 4
+size_flags_vertical = 4
+
+[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="." unique_id=2140759002]
+replication_config = SubResource("SceneReplicationConfig_h1phl")
+
+[node name="MobileUI" type="CanvasLayer" parent="." unique_id=2081294909]
+
+[node name="TouchScreenButton" type="TouchScreenButton" parent="MobileUI" unique_id=2094484895]
+position = Vector2(87, 360.00003)
+scale = Vector2(0.484375, 0.4765625)
+texture_normal = ExtResource("2_hgowg")
+action = "ui_up"
+
+[node name="TouchScreenButton5" type="TouchScreenButton" parent="MobileUI" unique_id=592173372]
+position = Vector2(1002, 546)
+scale = Vector2(0.484375, 0.4765625)
+texture_normal = ExtResource("2_hgowg")
+action = "ui_accept"
+
+[node name="TouchScreenButton2" type="TouchScreenButton" parent="MobileUI" unique_id=1397065811]
+position = Vector2(143, 421.00006)
+scale = Vector2(0.484375, 0.4765625)
+texture_normal = ExtResource("2_hgowg")
+action = "ui_right"
+
+[node name="TouchScreenButton3" type="TouchScreenButton" parent="MobileUI" unique_id=1011916634]
+position = Vector2(15.999998, 417.00006)
+scale = Vector2(0.484375, 0.4765625)
+texture_normal = ExtResource("2_hgowg")
+action = "ui_up"
+
+[node name="TouchScreenButton4" type="TouchScreenButton" parent="MobileUI" unique_id=888260177]
+position = Vector2(80.99999, 481)
+scale = Vector2(0.484375, 0.4765625)
+texture_normal = ExtResource("2_hgowg")
+action = "ui_down"

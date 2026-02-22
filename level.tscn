@@ -1,0 +1,63 @@
+[gd_scene format=3 uid="uid://6nrufu2exwe4"]
+
+[ext_resource type="PackedScene" uid="uid://lcc0jbdfa8lo" path="res://prop.tscn" id="1_u52ul"]
+[ext_resource type="PackedScene" uid="uid://bg3tsevb2ejqq" path="res://hunter.tscn" id="2_vonw3"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_vonw3"]
+sky_horizon_color = Color(0.66224277, 0.6717428, 0.6867428, 1)
+ground_horizon_color = Color(0.66224277, 0.6717428, 0.6867428, 1)
+
+[sub_resource type="Sky" id="Sky_oi3di"]
+sky_material = SubResource("ProceduralSkyMaterial_vonw3")
+
+[sub_resource type="Environment" id="Environment_0b4ue"]
+background_mode = 2
+sky = SubResource("Sky_oi3di")
+tonemap_mode = 2
+
+[sub_resource type="BoxMesh" id="BoxMesh_f2txt"]
+size = Vector3(30, 1, 30)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_1ainy"]
+size = Vector3(30, 1, 30)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_u52ul"]
+
+[sub_resource type="CylinderShape3D" id="CylinderShape3D_vonw3"]
+
+[node name="Level" type="Node3D" unique_id=2111952118]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1786582189]
+environment = SubResource("Environment_0b4ue")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1937903093]
+transform = Transform3D(-0.8660254, -0.43301278, 0.25, 0, 0.49999997, 0.86602545, -0.50000006, 0.75, -0.43301266, 0, 0, 0)
+shadow_enabled = true
+
+[node name="Floor" type="StaticBody3D" parent="." unique_id=1929269236]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor" unique_id=148061907]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.9511843, -0.25657225, -1.1370249)
+mesh = SubResource("BoxMesh_f2txt")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor" unique_id=2054711595]
+shape = SubResource("BoxShape3D_1ainy")
+
+[node name="Barrel" type="StaticBody3D" parent="." unique_id=691332790 groups=["props"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6858729, 1.9787173)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Barrel" unique_id=888456465]
+mesh = SubResource("CylinderMesh_u52ul")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Barrel" unique_id=1781742176]
+shape = SubResource("CylinderShape3D_vonw3")
+
+[node name="Hunter" parent="." unique_id=769471397 instance=ExtResource("2_vonw3")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.4872444, 2.0204892, 0)
+
+[node name="Prop" parent="." unique_id=1125570261 instance=ExtResource("1_u52ul")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0034446716, 1.4936091, -0.04466927)
+
+[node name="MultiplayerSpawner" type="MultiplayerSpawner" parent="." unique_id=880864020]
+_spawnable_scenes = PackedStringArray("uid://lcc0jbdfa8lo", "uid://bg3tsevb2ejqq")
+spawn_path = NodePath("..")

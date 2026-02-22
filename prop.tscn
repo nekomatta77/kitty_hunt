@@ -1,0 +1,39 @@
+[gd_scene format=3 uid="uid://lcc0jbdfa8lo"]
+
+[ext_resource type="Script" uid="uid://c5kedk70koy2m" path="res://prop.gd" id="1_7ky6l"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_l1x3g"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_bw8cs"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_u6dcr"]
+
+[sub_resource type="SceneReplicationConfig" id="SceneReplicationConfig_7ky6l"]
+properties/0/path = NodePath(".:rotation")
+properties/0/spawn = true
+properties/0/replication_mode = 1
+properties/1/path = NodePath(".:position")
+properties/1/spawn = true
+properties/1/replication_mode = 1
+
+[node name="Prop" type="CharacterBody3D" unique_id=1125570261]
+script = ExtResource("1_7ky6l")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=287294487]
+shape = SubResource("BoxShape3D_l1x3g")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1736715043]
+mesh = SubResource("BoxMesh_bw8cs")
+
+[node name="SpringArm3D" type="SpringArm3D" parent="." unique_id=389802238]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1683288, 1.444646)
+shape = SubResource("SphereShape3D_u6dcr")
+spring_length = 3.0
+
+[node name="Camera3D" type="Camera3D" parent="SpringArm3D" unique_id=317853611]
+
+[node name="RayCast3D" type="RayCast3D" parent="SpringArm3D/Camera3D" unique_id=1204239858]
+target_position = Vector3(0, 0, -10)
+
+[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="." unique_id=340642517]
+replication_config = SubResource("SceneReplicationConfig_7ky6l")

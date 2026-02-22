@@ -56,8 +56,8 @@ func sync_time(time: float):
 
 func update_timer_ui():
 	if not timer_label: return
-	var mins = int(time_left) / 60
-	var secs = int(time_left) % 60
+	var mins = int(max(time_left, 0)) / 60
+	var secs = int(max(time_left, 0)) % 60
 	timer_label.text = "%02d:%02d" % [mins, secs]
 	
 	if time_left <= 60:
@@ -65,22 +65,30 @@ func update_timer_ui():
 	else:
 		timer_label.add_theme_color_override("font_color", Color(1, 1, 1))
 
-# === ИДЕАЛЬНАЯ МЕХАНИКА ПОБЕДЫ ОХОТНИКА ===
-func check_hunter_win():
+# === ИДЕАЛЬНАЯ МЕХАНИКА ПОБЕДЫ В РЕАЛЬНОМ ВРЕМЕНИ ===
+# Теперь мы передаем умирающего игрока, чтобы игра не ждала окончания кадра!
+func check_hunter_win(dying_node = null):
 	if not game_active or not multiplayer.is_server(): return
 	
-	# Ждем 2 кадра, чтобы Godot гарантированно стер убитого пропа из памяти
-	await get_tree().process_frame
-	await get_tree().process_frame
-	
 	var alive_props = 0
-	for prop in get_tree().get_nodes_in_group("props"):
-		if is_instance_valid(prop) and not prop.is_queued_for_deletion():
+	for prop in get_tree().get_nodes_in_group("player_props"):
+		# Считаем живых пропов, исключая того, кто прямо сейчас умирает
+		if prop != dying_node and is_instance_valid(prop) and not prop.is_queued_for_deletion():
 			alive_props += 1
 			
-	# Если пропов не осталось и игра все еще идет - победа Охотника
 	if alive_props <= 0 and game_active:
 		rpc("show_game_over", true)
+
+func check_prop_win(dying_node = null):
+	if not game_active or not multiplayer.is_server(): return
+	
+	var alive_hunters = 0
+	for hunter in get_tree().get_nodes_in_group("player_hunters"):
+		if hunter != dying_node and is_instance_valid(hunter) and not hunter.is_queued_for_deletion():
+			alive_hunters += 1
+			
+	if alive_hunters <= 0 and game_active:
+		rpc("show_game_over", false)
 
 @rpc("authority", "call_local", "reliable")
 func show_game_over(hunter_won: bool):
@@ -90,6 +98,7 @@ func show_game_over(hunter_won: bool):
 	timer_label.hide()
 	game_over_overlay.show()
 	
+	game_over_panel.pivot_offset = game_over_panel.custom_minimum_size / 2
 	game_over_panel.scale = Vector2.ZERO
 	var tween = create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tween.tween_property(game_over_panel, "scale", Vector2.ONE, 0.5)

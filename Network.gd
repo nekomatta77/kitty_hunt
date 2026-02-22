@@ -9,7 +9,8 @@ var my_name = "Игрок"
 @onready var hunter_scene = preload("res://hunter.tscn")
 @onready var prop_scene = preload("res://prop.tscn")
 
-var cb_start_host; var cb_start_client; var cb_create_peer
+var cb_start_host;
+var cb_start_client; var cb_create_peer
 var cb_set_remote_sdp; var cb_add_remote_ice
 
 func _ready():
@@ -93,7 +94,6 @@ func _on_peer_connected(id):
 	if multiplayer.is_server(): 
 		player_roles[id] = false
 		
-	# НАДЁЖНОЕ РУКОПОЖАТИЕ: Каждый шлет свой ник лично тому, кто только что подключился!
 	rpc_id(id, "sync_player_name", multiplayer.get_unique_id(), my_name)
 
 @rpc("any_peer", "call_local", "reliable")
@@ -114,8 +114,12 @@ func _on_peer_disconnected(id):
 	var level = get_tree().current_scene
 	if level and level.has_node(str(id)):
 		var player_node = level.get_node(str(id))
-		if multiplayer.is_server() and player_node.is_in_group("props") and level.has_method("check_hunter_win"):
-			level.check_hunter_win(player_node)
+		# МГНОВЕННАЯ ПРОВЕРКА ПОБЕДЫ ПРИ ВЫХОДЕ ИГРОКА
+		if multiplayer.is_server():
+			if player_node.is_in_group("player_props") and level.has_method("check_hunter_win"):
+				level.check_hunter_win(player_node)
+			if player_node.is_in_group("player_hunters") and level.has_method("check_prop_win"):
+				level.check_prop_win(player_node)
 		player_node.queue_free()
 
 func spawn_player_locally(id: int, is_hunter: bool):
@@ -124,7 +128,7 @@ func spawn_player_locally(id: int, is_hunter: bool):
 	
 	var player = hunter_scene.instantiate() if is_hunter else prop_scene.instantiate()
 	player.name = str(id)
-	player.add_to_group("hunters" if is_hunter else "props")
+	player.add_to_group("player_hunters" if is_hunter else "player_props")
 	
 	var spawn_x = float(id % 3) * 3.0 - 3.0
 	var spawn_z = float((id * 2) % 3) * 3.0 - 3.0

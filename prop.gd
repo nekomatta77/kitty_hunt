@@ -37,60 +37,77 @@ func _setup_beautiful_ui():
 	var canvas = CanvasLayer.new()
 	add_child(canvas)
 	
+	var root_ui = Control.new()
+	root_ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root_ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	canvas.add_child(root_ui)
+	
+	# === КРОССХАЕР ===
 	var center_box = CenterContainer.new()
 	center_box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	canvas.add_child(center_box)
+	center_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root_ui.add_child(center_box)
 	
-	# === ВОТ НАШ СКРИПТОВЫЙ ПРИЦЕЛ ===
 	var crosshair = Panel.new()
-	crosshair.custom_minimum_size = Vector2(8, 8)
+	crosshair.custom_minimum_size = Vector2(6, 6)
 	var ch_style = StyleBoxFlat.new()
-	ch_style.bg_color = Color(1, 1, 1, 0.6) # Полупрозрачный белый
-	ch_style.set_corner_radius_all(4) # Круглая точка
+	ch_style.bg_color = Color(1, 1, 1, 0.8) 
+	ch_style.set_corner_radius_all(3) 
 	crosshair.add_theme_stylebox_override("panel", ch_style)
 	center_box.add_child(crosshair)
 	
-	# === ПОЛОСКА ЗДОРОВЬЯ ===
-	var margin = MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	margin.add_theme_constant_override("margin_bottom", 40)
-	canvas.add_child(margin)
+	# === СОВРЕМЕННЫЙ HUD ЗДОРОВЬЯ (В ЛЕВОМ ВЕРХНЕМ УГЛУ) ===
+	var hp_margin = MarginContainer.new()
+	hp_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hp_margin.add_theme_constant_override("margin_left", 40)
+	hp_margin.add_theme_constant_override("margin_top", 40) # Отступ от верхнего края
+	hp_margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root_ui.add_child(hp_margin)
+	
+	var hp_vbox = VBoxContainer.new()
+	hp_vbox.alignment = BoxContainer.ALIGNMENT_BEGIN # Прижимаем к верху экрана
+	hp_vbox.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN # Прижимаем к левому краю
+	hp_margin.add_child(hp_vbox)
+	
+	var hp_label = Label.new()
+	hp_label.text = "ЗДОРОВЬЕ МАСКИРОВКИ"
+	var modern_font = SystemFont.new()
+	modern_font.font_names = PackedStringArray(["Montserrat", "Segoe UI", "sans-serif"])
+	modern_font.font_weight = 800
+	hp_label.add_theme_font_override("font", modern_font)
+	hp_label.add_theme_font_size_override("font_size", 20)
+	hp_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.95))
+	hp_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.6))
+	hp_label.add_theme_constant_override("shadow_offset_y", 2)
+	hp_vbox.add_child(hp_label)
 	
 	custom_hp_bar = ProgressBar.new()
-	custom_hp_bar.custom_minimum_size = Vector2(400, 35)
-	custom_hp_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	custom_hp_bar.custom_minimum_size = Vector2(350, 26)
 	custom_hp_bar.show_percentage = false
 	custom_hp_bar.max_value = 100
 	custom_hp_bar.value = health
 	
-	var modern_font = SystemFont.new()
-	modern_font.font_names = PackedStringArray(["Montserrat", "Segoe UI", "sans-serif"])
-	modern_font.font_weight = 700
-	
 	var bg_style = StyleBoxFlat.new()
-	bg_style.bg_color = Color(0.1, 0.1, 0.1, 0.8)
-	bg_style.set_corner_radius_all(16)
+	bg_style.bg_color = Color(0.1, 0.1, 0.1, 0.7)
+	bg_style.set_corner_radius_all(8)
 	bg_style.set_border_width_all(2)
-	bg_style.border_color = Color(0.3, 0.3, 0.3)
+	bg_style.border_color = Color(0.0, 0.0, 0.0, 0.8)
 	
 	fg_style = StyleBoxFlat.new()
-	fg_style.bg_color = Color(0.2, 0.6, 0.9) 
-	fg_style.set_corner_radius_all(16)
+	fg_style.bg_color = Color(0.2, 0.6, 0.9)
+	fg_style.set_corner_radius_all(6)
+	fg_style.set_border_width_all(2)
+	fg_style.border_color = Color(0.4, 0.8, 1.0, 0.3) 
 	
 	custom_hp_bar.add_theme_stylebox_override("background", bg_style)
 	custom_hp_bar.add_theme_stylebox_override("fill", fg_style)
-	
-	var label = Label.new()
-	label.text = "ЗДОРОВЬЕ МАСКИРОВКИ"
-	label.add_theme_font_override("font", modern_font)
-	label.add_theme_font_size_override("font_size", 16)
-	label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	custom_hp_bar.add_child(label)
-	margin.add_child(custom_hp_bar)
+	hp_vbox.add_child(custom_hp_bar)
 
 func update_hp_visual(new_health: float):
 	if custom_hp_bar:
-		custom_hp_bar.value = new_health
+		var tween = create_tween()
+		tween.tween_property(custom_hp_bar, "value", new_health, 0.2).set_trans(Tween.TRANS_SINE)
+		
 		if new_health <= 30:
 			fg_style.bg_color = Color(0.9, 0.3, 0.2)
 		else:
@@ -130,7 +147,7 @@ func try_transform():
 	raycast.force_raycast_update()
 	if raycast.is_colliding():
 		var target = raycast.get_collider()
-		if target.is_in_group("props"):
+		if target.is_in_group("player_props") or target.is_in_group("props") or target.is_in_group("map_props"):
 			rpc("sync_transform", str(target.get_path()))
 
 @rpc("authority", "call_local", "reliable")
@@ -190,9 +207,8 @@ func sync_health(new_health: float):
 
 @rpc("authority", "call_local", "reliable")
 func die_rpc():
-	queue_free() 
-	
 	if multiplayer.is_server():
 		var level = get_tree().current_scene
 		if level and level.has_method("check_hunter_win"):
-			level.check_hunter_win()
+			level.check_hunter_win(self)
+	queue_free()

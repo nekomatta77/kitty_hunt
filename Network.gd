@@ -3,7 +3,7 @@ extends Node
 var multiplayer_peer = WebRTCMultiplayerPeer.new()
 var peers = {} 
 var player_roles = {} 
-var player_names = {} # Словарь для хранения ников: { id: "Ник" }
+var player_names = {} 
 var my_name = "Игрок"
 
 @onready var hunter_scene = preload("res://hunter.tscn")
@@ -17,7 +17,6 @@ func _ready():
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 
 	if OS.has_feature("web"):
-		# Умный поиск ника на твоем сайте (поддерживает обычные переменные и Telegram WebApp)
 		var js_code = """
 			(function() {
 				if (window.playerName) return window.playerName;
@@ -28,7 +27,7 @@ func _ready():
 			})();
 		"""
 		var fetched_name = JavaScriptBridge.eval(js_code)
-		if fetched_name:
+		if fetched_name and str(fetched_name).strip_edges() != "" and not str(fetched_name).is_valid_int():
 			my_name = str(fetched_name)
 		else:
 			my_name = "Игрок " + str(randi() % 999)
@@ -59,12 +58,13 @@ func start_host():
 	multiplayer_peer.create_server()
 	multiplayer.multiplayer_peer = multiplayer_peer
 	player_roles[1] = true 
-	player_names[1] = my_name # Записываем себя
+	player_names[1] = my_name
+	_refresh_lobby_ui()
 
 func start_client(my_id: int):
 	multiplayer_peer.create_client(my_id)
 	multiplayer.multiplayer_peer = multiplayer_peer
-	player_names[my_id] = my_name # Записываем себя
+	player_names[my_id] = my_name
 	create_peer(1)
 
 func create_peer(id: int):
@@ -90,34 +90,36 @@ func add_remote_ice(id: int, media: String, index: int, name: String):
 	if peers.has(id): peers[id].add_ice_candidate(media, index, name)
 
 func _on_peer_connected(id):
-	if multiplayer.is_server(): player_roles[id] = false
-	# Как только кто-то подключился, отправляем ему и всем остальным наш ник
-	rpc("register_player_name", my_name)
+	if multiplayer.is_server(): 
+		player_roles[id] = false
+		
+	# НАДЁЖНОЕ РУКОПОЖАТИЕ: Каждый шлет свой ник лично тому, кто только что подключился!
+	rpc_id(id, "sync_player_name", multiplayer.get_unique_id(), my_name)
 
 @rpc("any_peer", "call_local", "reliable")
-func register_player_name(nickname: String):
-	var sender_id = multiplayer.get_remote_sender_id()
-	if sender_id == 0: sender_id = multiplayer.get_unique_id()
-	player_names[sender_id] = nickname
-	
-	# Обновляем лобби, если мы в нем
-	var lobby = get_node_or_null("/root/Lobby")
-	if lobby and lobby.has_method("refresh_players"):
-		lobby.refresh_players()
+func sync_player_name(peer_id: int, nickname: String):
+	player_names[peer_id] = nickname
+	_refresh_lobby_ui()
+
+func _refresh_lobby_ui():
+	var scene = get_tree().current_scene
+	if scene and scene.has_method("refresh_players"):
+		scene.refresh_players()
 
 func _on_peer_disconnected(id):
 	if peers.has(id): peers.erase(id)
 	if player_roles.has(id): player_roles.erase(id)
 	if player_names.has(id): player_names.erase(id)
 	
-	var level = get_node_or_null("/root/Level")
+	var level = get_tree().current_scene
 	if level and level.has_node(str(id)):
-		level.get_node(str(id)).queue_free()
-		if multiplayer.is_server() and level.has_method("check_hunter_win"):
-			level.call_deferred("check_hunter_win", "") # Пересчет победы
+		var player_node = level.get_node(str(id))
+		if multiplayer.is_server() and player_node.is_in_group("props") and level.has_method("check_hunter_win"):
+			level.check_hunter_win(player_node)
+		player_node.queue_free()
 
 func spawn_player_locally(id: int, is_hunter: bool):
-	var level = get_node_or_null("/root/Level")
+	var level = get_tree().current_scene
 	if not level or level.has_node(str(id)): return 
 	
 	var player = hunter_scene.instantiate() if is_hunter else prop_scene.instantiate()

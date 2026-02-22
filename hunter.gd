@@ -1,6 +1,7 @@
 extends CharacterBody3D
 
-const SPEED = 5.0
+const WALK_SPEED = 5.0
+const SPRINT_SPEED = 8.0 
 const JUMP_VELOCITY = 4.5
 var mouse_sensitivity = 0.002
 var gravity = ProjectSettings.get_setting("physics/3d/default_gravity")
@@ -9,25 +10,121 @@ var health = 100.0
 
 @onready var camera = $Camera3D
 @onready var raycast = $Camera3D/RayCast3D
-@onready var mobile_ui = $MobileUI
+@onready var mobile_ui = $MobileUI 
 
-var health_bar = null
+var original_health_bar = null
+var custom_hp_bar: ProgressBar
+var hitmarker_node: Control
+var hm_tween: Tween
+var fg_style: StyleBoxFlat
 
 func _ready():
 	raycast.add_exception(self)
 	
-	for child in mobile_ui.get_children():
-		if child.has_method("set_health"):
-			health_bar = child
-			break
+	if mobile_ui:
+		for child in mobile_ui.get_children():
+			if child.has_method("set_health"):
+				original_health_bar = child
+				child.hide() 
 	
 	if is_multiplayer_authority():
 		camera.current = true
-		mobile_ui.show()
-		if health_bar:
-			health_bar.set_health(health)
-	else:
-		mobile_ui.hide()
+		_setup_beautiful_ui()
+		update_hp_visual(health)
+
+func _setup_beautiful_ui():
+	var canvas = CanvasLayer.new()
+	add_child(canvas)
+	
+	var center_box = CenterContainer.new()
+	center_box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	canvas.add_child(center_box)
+	
+	# === ВОТ НАШ СКРИПТОВЫЙ ПРИЦЕЛ ===
+	var crosshair = Panel.new()
+	crosshair.custom_minimum_size = Vector2(8, 8)
+	var ch_style = StyleBoxFlat.new()
+	ch_style.bg_color = Color(1, 1, 1, 0.6) # Полупрозрачный белый
+	ch_style.set_corner_radius_all(4) # Делаем его круглым
+	crosshair.add_theme_stylebox_override("panel", ch_style)
+	center_box.add_child(crosshair)
+	
+	# === ХИТМАРКЕР ===
+	hitmarker_node = Control.new()
+	hitmarker_node.custom_minimum_size = Vector2(30, 30)
+	center_box.add_child(hitmarker_node)
+	
+	var line1 = ColorRect.new()
+	line1.color = Color(1, 0.2, 0.2)
+	line1.custom_minimum_size = Vector2(24, 4)
+	line1.position = Vector2(3, 13)
+	line1.rotation_degrees = 45
+	hitmarker_node.add_child(line1)
+	
+	var line2 = ColorRect.new()
+	line2.color = Color(1, 0.2, 0.2)
+	line2.custom_minimum_size = Vector2(24, 4)
+	line2.position = Vector2(3, 17)
+	line2.rotation_degrees = -45
+	hitmarker_node.add_child(line2)
+	
+	hitmarker_node.modulate = Color(1, 1, 1, 0) 
+	
+	# === ПОЛОСКА ЗДОРОВЬЯ ===
+	var margin = MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	margin.add_theme_constant_override("margin_bottom", 40)
+	canvas.add_child(margin)
+	
+	custom_hp_bar = ProgressBar.new()
+	custom_hp_bar.custom_minimum_size = Vector2(400, 35)
+	custom_hp_bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	custom_hp_bar.show_percentage = false
+	custom_hp_bar.max_value = 100
+	custom_hp_bar.value = health
+	
+	var modern_font = SystemFont.new()
+	modern_font.font_names = PackedStringArray(["Montserrat", "Segoe UI", "sans-serif"])
+	modern_font.font_weight = 700
+	
+	var bg_style = StyleBoxFlat.new()
+	bg_style.bg_color = Color(0.1, 0.1, 0.1, 0.8)
+	bg_style.set_corner_radius_all(16)
+	bg_style.set_border_width_all(2)
+	bg_style.border_color = Color(0.3, 0.3, 0.3)
+	
+	fg_style = StyleBoxFlat.new()
+	fg_style.bg_color = Color(0.2, 0.8, 0.3) 
+	fg_style.set_corner_radius_all(16)
+	
+	custom_hp_bar.add_theme_stylebox_override("background", bg_style)
+	custom_hp_bar.add_theme_stylebox_override("fill", fg_style)
+	
+	var label = Label.new()
+	label.text = "ЗДОРОВЬЕ ОХОТНИКА"
+	label.add_theme_font_override("font", modern_font)
+	label.add_theme_font_size_override("font_size", 16)
+	label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	custom_hp_bar.add_child(label)
+	margin.add_child(custom_hp_bar)
+
+func flash_hitmarker():
+	if hitmarker_node:
+		if hm_tween: hm_tween.kill()
+		hitmarker_node.modulate = Color(1, 1, 1, 1) 
+		hm_tween = create_tween()
+		hm_tween.tween_property(hitmarker_node, "modulate", Color(1, 1, 1, 0), 0.4) 
+
+func update_hp_visual(new_health: float):
+	if custom_hp_bar:
+		custom_hp_bar.value = new_health
+		if new_health <= 30:
+			fg_style.bg_color = Color(0.9, 0.2, 0.2)
+		else:
+			fg_style.bg_color = Color(0.2, 0.8, 0.3)
+			
+	if original_health_bar:
+		original_health_bar.set_health(new_health)
 
 func _enter_tree():
 	var id = name.to_int()
@@ -60,8 +157,9 @@ func shoot():
 	raycast.force_raycast_update()
 	if raycast.is_colliding():
 		var target = raycast.get_collider()
-		if target.has_method("receive_damage"):
+		if target != self and target.has_method("receive_damage"):
 			target.rpc("receive_damage", 25.0)
+			flash_hitmarker() 
 		else:
 			rpc("receive_damage", 10.0)
 	else:
@@ -79,19 +177,22 @@ func _physics_process(delta):
 
 	var h_axis = int(Input.is_physical_key_pressed(KEY_D)) - int(Input.is_physical_key_pressed(KEY_A))
 	if h_axis == 0: h_axis = Input.get_axis("ui_left", "ui_right")
-	
 	var v_axis = int(Input.is_physical_key_pressed(KEY_S)) - int(Input.is_physical_key_pressed(KEY_W))
 	if v_axis == 0: v_axis = Input.get_axis("ui_up", "ui_down")
 
 	var input_dir = Vector2(h_axis, v_axis).normalized()
 	var direction = (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 	
+	var current_speed = WALK_SPEED
+	if Input.is_physical_key_pressed(KEY_SHIFT):
+		current_speed = SPRINT_SPEED
+	
 	if direction:
-		velocity.x = direction.x * SPEED
-		velocity.z = direction.z * SPEED
+		velocity.x = direction.x * current_speed
+		velocity.z = direction.z * current_speed
 	else:
-		velocity.x = move_toward(velocity.x, 0, SPEED)
-		velocity.z = move_toward(velocity.z, 0, SPEED)
+		velocity.x = move_toward(velocity.x, 0, current_speed)
+		velocity.z = move_toward(velocity.z, 0, current_speed)
 
 	move_and_slide()
 
@@ -99,7 +200,7 @@ func _physics_process(delta):
 func receive_damage(amount: float):
 	if is_multiplayer_authority():
 		health -= amount
-		if health_bar: health_bar.set_health(health)
+		update_hp_visual(health)
 		
 		if health <= 0:
 			rpc("die_rpc")
@@ -109,13 +210,13 @@ func receive_damage(amount: float):
 @rpc("authority", "call_remote", "reliable")
 func sync_health(new_health: float):
 	health = new_health
+	if is_multiplayer_authority():
+		update_hp_visual(new_health)
 
 @rpc("authority", "call_local", "reliable")
 func die_rpc():
 	queue_free()
-	
-	# === ВАЖНО: Если охотник умер - пропы досрочно победили ===
 	if multiplayer.is_server():
-		var level = get_node_or_null("/root/Level")
+		var level = get_tree().current_scene
 		if level and level.has_method("show_game_over"):
 			level.rpc("show_game_over", false)

@@ -1,16 +1,21 @@
 extends Node3D
 
-var time_left: float = 300.0 # 5 минут = 300 секунд
+var time_left: float = 300.0 
 var game_active: bool = false
 
-# UI Элементы, которые мы создаем скриптом
 var ui_layer: CanvasLayer
 var timer_label: Label
+var game_over_overlay: ColorRect
 var game_over_panel: Panel
 var result_label: Label
 var return_btn: Button
+var modern_font: SystemFont
 
 func _ready():
+	modern_font = SystemFont.new()
+	modern_font.font_names = PackedStringArray(["Montserrat", "Segoe UI", "Roboto", "sans-serif"])
+	modern_font.font_weight = 700
+	
 	setup_ui()
 	
 	if multiplayer.is_server():
@@ -37,13 +42,10 @@ func _process(delta):
 	
 	if multiplayer.is_server():
 		time_left -= delta
-		
-		# Победа пропов по таймеру
 		if time_left <= 0:
 			time_left = 0
 			rpc("show_game_over", false) 
 		else:
-			# Хост синхронизирует время для клиентов (не каждый кадр, а плавно)
 			rpc("sync_time", time_left)
 
 	update_timer_ui()
@@ -58,107 +60,122 @@ func update_timer_ui():
 	var secs = int(time_left) % 60
 	timer_label.text = "%02d:%02d" % [mins, secs]
 	
-	# Краснеет на последней минуте
 	if time_left <= 60:
 		timer_label.add_theme_color_override("font_color", Color(1, 0.3, 0.3))
 	else:
 		timer_label.add_theme_color_override("font_color", Color(1, 1, 1))
 
-# Вызывается хостом, когда умирает любой проп
+# === ИДЕАЛЬНАЯ МЕХАНИКА ПОБЕДЫ ОХОТНИКА ===
 func check_hunter_win():
 	if not game_active or not multiplayer.is_server(): return
 	
+	# Ждем 2 кадра, чтобы Godot гарантированно стер убитого пропа из памяти
+	await get_tree().process_frame
+	await get_tree().process_frame
+	
 	var alive_props = 0
-	for child in get_children():
-		if child.is_in_group("props") and not child.is_queued_for_deletion():
+	for prop in get_tree().get_nodes_in_group("props"):
+		if is_instance_valid(prop) and not prop.is_queued_for_deletion():
 			alive_props += 1
 			
-	if alive_props <= 0:
-		rpc("show_game_over", true) # Победа Охотника
+	# Если пропов не осталось и игра все еще идет - победа Охотника
+	if alive_props <= 0 and game_active:
+		rpc("show_game_over", true)
 
 @rpc("authority", "call_local", "reliable")
 func show_game_over(hunter_won: bool):
 	game_active = false
-	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE) # Обязательно освобождаем мышку
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE) 
 	
 	timer_label.hide()
-	game_over_panel.show()
+	game_over_overlay.show()
+	
+	game_over_panel.scale = Vector2.ZERO
+	var tween = create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(game_over_panel, "scale", Vector2.ONE, 0.5)
 	
 	if hunter_won:
 		result_label.text = "ПОБЕДА ОХОТНИКА!\n\nВсе пропы уничтожены"
-		result_label.add_theme_color_override("font_color", Color(0.9, 0.2, 0.2))
+		result_label.add_theme_color_override("font_color", Color(1, 0.4, 0.4))
 	else:
 		result_label.text = "ПОБЕДА ПРОПОВ!\n\nОхотник не справился"
-		result_label.add_theme_color_override("font_color", Color(0.2, 0.9, 0.2))
+		result_label.add_theme_color_override("font_color", Color(0.4, 1, 0.5))
 		
 	if multiplayer.is_server():
-		return_btn.show() # Кнопка только у хоста
+		return_btn.show()
 	else:
 		return_btn.hide()
-		# Добавляем надпись для клиентов
-		var wait_lbl = Label.new()
-		wait_lbl.text = "Ожидание действий хоста..."
-		wait_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		wait_lbl.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-		wait_lbl.position.y -= 25
-		game_over_panel.add_child(wait_lbl)
 
-# --- ГЕНЕРАЦИЯ ЭСТЕТИЧНОГО ИНТЕРФЕЙСА ЧЕРЕЗ КОД ---
 func setup_ui():
 	ui_layer = CanvasLayer.new()
 	add_child(ui_layer)
 	
-	# === ТАЙМЕР ===
 	timer_label = Label.new()
 	timer_label.text = "05:00"
+	timer_label.add_theme_font_override("font", modern_font)
 	timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	timer_label.add_theme_font_size_override("font_size", 54)
-	timer_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
-	timer_label.add_theme_constant_override("shadow_offset_x", 2)
-	timer_label.add_theme_constant_override("shadow_offset_y", 2)
+	timer_label.add_theme_font_size_override("font_size", 64)
+	timer_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
+	timer_label.add_theme_constant_override("shadow_offset_x", 3)
+	timer_label.add_theme_constant_override("shadow_offset_y", 3)
 	ui_layer.add_child(timer_label)
 	timer_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	timer_label.position.y += 20
 	
-	# === ОКНО ПОБЕДЫ ===
+	game_over_overlay = ColorRect.new()
+	game_over_overlay.color = Color(0, 0, 0, 0.7)
+	game_over_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	game_over_overlay.hide()
+	ui_layer.add_child(game_over_overlay)
+	
+	var center_box = CenterContainer.new()
+	center_box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	game_over_overlay.add_child(center_box)
+	
 	game_over_panel = Panel.new()
 	var style = StyleBoxFlat.new()
-	style.bg_color = Color(0.05, 0.05, 0.08, 0.9) # Темно-синий фон
-	style.set_corner_radius_all(20)
-	style.set_border_width_all(2)
-	style.border_color = Color(1, 1, 1, 0.2)
+	style.bg_color = Color(0.1, 0.1, 0.15, 0.95)
+	style.set_corner_radius_all(24)
+	style.set_border_width_all(3)
+	style.border_color = Color(1, 1, 1, 0.3)
+	style.shadow_color = Color(0, 0, 0, 0.8)
+	style.shadow_size = 30
 	game_over_panel.add_theme_stylebox_override("panel", style)
 	
-	ui_layer.add_child(game_over_panel)
-	game_over_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	game_over_panel.custom_minimum_size = Vector2(450, 300)
-	game_over_panel.position -= Vector2(225, 150) # Математический центр
-	game_over_panel.hide()
+	game_over_panel.custom_minimum_size = Vector2(500, 350)
+	center_box.add_child(game_over_panel)
+	
+	var vbox = VBoxContainer.new()
+	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 50)
+	game_over_panel.add_child(vbox)
 	
 	result_label = Label.new()
+	result_label.add_theme_font_override("font", modern_font)
 	result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	result_label.add_theme_font_size_override("font_size", 30)
+	result_label.add_theme_font_size_override("font_size", 34)
 	result_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 1))
-	game_over_panel.add_child(result_label)
-	result_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	result_label.position.y += 40
+	vbox.add_child(result_label)
 	
 	return_btn = Button.new()
-	return_btn.text = "Вернуться в лобби"
+	return_btn.text = "ВЕРНУТЬСЯ В ЛОББИ"
+	return_btn.add_theme_font_override("font", modern_font)
 	return_btn.add_theme_font_size_override("font_size", 22)
+	
 	var btn_style = StyleBoxFlat.new()
-	btn_style.bg_color = Color(0.2, 0.5, 0.8, 1)
-	btn_style.set_corner_radius_all(10)
+	btn_style.bg_color = Color(0.25, 0.6, 0.9)
+	btn_style.set_corner_radius_all(12)
 	return_btn.add_theme_stylebox_override("normal", btn_style)
+	
 	var btn_hover = btn_style.duplicate()
-	btn_hover.bg_color = Color(0.3, 0.6, 0.9, 1)
+	btn_hover.bg_color = Color(0.35, 0.7, 1.0)
 	return_btn.add_theme_stylebox_override("hover", btn_hover)
 	
-	game_over_panel.add_child(return_btn)
-	return_btn.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	return_btn.custom_minimum_size = Vector2(300, 60)
-	return_btn.position.y -= 90
-	return_btn.position.x += 75
+	return_btn.custom_minimum_size = Vector2(350, 65)
+	return_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	vbox.add_child(return_btn)
+	
 	return_btn.pressed.connect(_on_return_pressed)
 
 func _on_return_pressed():
@@ -167,6 +184,5 @@ func _on_return_pressed():
 
 @rpc("authority", "call_local", "reliable")
 func return_to_lobby():
-	# Очищаем уровень и возвращаемся в лобби (сеть останется подключенной)
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	get_tree().change_scene_to_file("res://lobby.tscn")

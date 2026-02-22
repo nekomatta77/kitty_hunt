@@ -95,14 +95,17 @@ func _physics_process(delta):
 	move_and_slide()
 
 @rpc("any_peer", "call_local", "reliable")
-func receive_damage(amount):
+func receive_damage(amount: float): # 🔥 Указан строгий тип Float
 	health -= amount
+	
+	print("Проп получил урон! Здоровье: ", health)
 	
 	# Обновляем полоску ХП только на своем экране
 	if is_multiplayer_authority():
+		# 🔥 Теперь передаем строго Float, и полоска обновится мгновенно
 		health_bar.set_health(health)
 		
-	print("Проп получил урон! Здоровье: ", health)
 	if health <= 0:
 		print("Проп убит!")
+		queue_free()
 		queue_free()

@@ -2,39 +2,35 @@ extends Control
 
 var max_health = 100.0
 var current_health = 100.0
-var segments = 10 # Количество делений
-var segment_gap = 4 # Расстояние между делениями (пиксели)
+var segments = 10 
+var segment_gap = 4 
 
 func set_health(hp):
-	current_health = hp
-	queue_redraw() # Даем команду перерисовать интерфейс
+	# 🔥 ФИКС: Принудительно конвертируем входящее значение во float (дробное)
+	# чтобы математика делений в _draw() не ломалась об целые числа
+	current_health = float(hp)
+	queue_redraw() 
 
 func _draw():
-	# Вычисляем ширину одного отсека
+	if segments <= 0 or size.x <= 0: return # Защита от ошибок отрисовки
+	
 	var seg_width = (size.x - (segments - 1) * segment_gap) / float(segments)
 	
 	for i in range(segments):
 		var x_pos = i * (seg_width + segment_gap)
 		var rect = Rect2(x_pos, 0, seg_width, size.y)
 		
-		# 1. Задний фон (пустой отсек, полупрозрачный черный)
 		draw_rect(rect, Color(0.1, 0.1, 0.1, 0.7))
 		
-		# 2. Вычисляем, сколько здоровья в этом конкретном отсеке
-		var hp_per_segment = max_health / segments
+		var hp_per_segment = max_health / float(segments)
 		var hp_for_this_segment = current_health - (i * hp_per_segment)
 		var fill_ratio = clamp(hp_for_this_segment / hp_per_segment, 0.0, 1.0)
 		
-		# 3. Рисуем заливку
 		if fill_ratio > 0:
 			var fill_rect = Rect2(x_pos, 0, seg_width * fill_ratio, size.y)
-			
-			# Динамический цвет
-			var color = Color(0.2, 0.8, 0.2) # Зеленый (Full)
-			if current_health <= 50: color = Color(0.8, 0.8, 0.2) # Желтый (Medium)
-			if current_health <= 25: color = Color(0.9, 0.2, 0.2) # Красный (Low)
-			
+			var color = Color(0.2, 0.8, 0.2) 
+			if current_health <= 50.0: color = Color(0.8, 0.8, 0.2) 
+			if current_health <= 25.0: color = Color(0.9, 0.2, 0.2) 
 			draw_rect(fill_rect, color)
 		
-		# 4. Красивая рамка вокруг каждого отсека
 		draw_rect(rect, Color(0, 0, 0, 1), false, 2.0)

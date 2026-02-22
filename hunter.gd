@@ -49,21 +49,20 @@ func _unhandled_input(event):
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 		shoot()
 
+# Найди функцию shoot() и замени ее
 func shoot():
 	raycast.force_raycast_update()
 	if raycast.is_colliding():
 		var target = raycast.get_collider()
-		# Если у цели есть функция получения урона (это Проп)
 		if target.has_method("receive_damage"):
-			target.rpc("receive_damage", 25)
+			# 🔥 ФИКС: Строгий синтаксис Godot 4 для вызова RPC на конкретном узле
+			target.receive_damage.rpc(25.0) 
 			print("Попал в Пропа!")
 		else:
-			# Попал в стену или обычный предмет
-			rpc("receive_damage", 10)
+			receive_damage.rpc(10.0)
 			print("Промазал! Минус 10 ХП")
 	else:
-		# Выстрелил в небо (тоже промах)
-		rpc("receive_damage", 10)
+		receive_damage.rpc(10.0)
 		print("Промазал в молоко! Минус 10 ХП")
 
 func _physics_process(delta):

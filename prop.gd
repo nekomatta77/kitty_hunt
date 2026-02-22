@@ -4,32 +4,36 @@ const SPEED = 5.0
 const JUMP_VELOCITY = 4.5
 var mouse_sensitivity = 0.002
 var gravity = ProjectSettings.get_setting("physics/3d/default_gravity")
-var health = 100
+
+var health = 100 # Здоровье Пропа
 
 @onready var spring_arm = $SpringArm3D
 @onready var camera = $SpringArm3D/Camera3D
 @onready var raycast = $SpringArm3D/Camera3D/RayCast3D
 @onready var mesh_instance = $MeshInstance3D
 @onready var collision_shape = $CollisionShape3D
+@onready var health_bar = $MobileUI/HealthBar # Ссылка на новую полоску ХП
+@onready var mobile_ui = $MobileUI
 
 func _ready():
 	spring_arm.add_excluded_object(self.get_rid())
+	
 	if is_multiplayer_authority():
 		camera.current = true
+		mobile_ui.show() # Показываем интерфейс только себе
+		health_bar.set_health(health) # Инициализируем полоску ХП
+	else:
+		mobile_ui.hide() # Прячем чужой интерфейс
 
 func _enter_tree():
 	var id = name.to_int()
-	if id == 0:
-		id = 1 
+	if id == 0: id = 1 
 	set_multiplayer_authority(id)
 
-func _input(event):
-	if not is_multiplayer_authority():
-		return
+func _unhandled_input(event):
+	if not is_multiplayer_authority(): return
 		
-	# --- РАЗДЕЛЕНИЕ ЭКРАНА (ПК и Телефон) ---
 	var is_valid_drag = false
-	
 	if event is InputEventMouseMotion:
 		is_valid_drag = true
 	elif event is InputEventScreenDrag:
@@ -53,47 +57,52 @@ func try_transform():
 	if raycast.is_colliding():
 		var target = raycast.get_collider()
 		if target.is_in_group("props"):
-			var target_mesh = target.get_node("MeshInstance3D").mesh
-			var target_shape = target.get_node("CollisionShape3D").shape
-			if target_mesh and target_shape:
-				mesh_instance.mesh = target_mesh
-				collision_shape.shape = target_shape
+			rpc("sync_transform", str(target.get_path()))
+
+@rpc("authority", "call_local", "reliable")
+func sync_transform(target_path: String):
+	var target = get_node_or_null(target_path)
+	if target and target.has_node("MeshInstance3D") and target.has_node("CollisionShape3D"):
+		mesh_instance.mesh = target.get_node("MeshInstance3D").mesh
+		collision_shape.shape = target.get_node("CollisionShape3D").shape
 
 func _physics_process(delta):
+	if not is_multiplayer_authority(): return
+
 	if not is_on_floor():
 		velocity.y -= gravity * delta
 
-	if is_multiplayer_authority():
-		if Input.is_physical_key_pressed(KEY_SPACE) or Input.is_action_just_pressed("ui_accept"):
-			if is_on_floor():
-				velocity.y = JUMP_VELOCITY
+	if Input.is_physical_key_pressed(KEY_SPACE) or Input.is_action_just_pressed("ui_accept"):
+		if is_on_floor():
+			velocity.y = JUMP_VELOCITY
 
-		# ЖЕЛЕЗОБЕТОННЫЙ WASD (ПК + Мобильные кнопки)
-		var h_axis = int(Input.is_physical_key_pressed(KEY_D)) - int(Input.is_physical_key_pressed(KEY_A))
-		if h_axis == 0: 
-			h_axis = Input.get_axis("ui_left", "ui_right")
-		
-		var v_axis = int(Input.is_physical_key_pressed(KEY_S)) - int(Input.is_physical_key_pressed(KEY_W))
-		if v_axis == 0: 
-			v_axis = Input.get_axis("ui_up", "ui_down")
+	var h_axis = int(Input.is_physical_key_pressed(KEY_D)) - int(Input.is_physical_key_pressed(KEY_A))
+	if h_axis == 0: h_axis = Input.get_axis("ui_left", "ui_right")
+	
+	var v_axis = int(Input.is_physical_key_pressed(KEY_S)) - int(Input.is_physical_key_pressed(KEY_W))
+	if v_axis == 0: v_axis = Input.get_axis("ui_up", "ui_down")
 
-		var input_dir = Vector2(h_axis, v_axis).normalized()
-		var direction = (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
-		
-		if direction:
-			velocity.x = direction.x * SPEED
-			velocity.z = direction.z * SPEED
-		else:
-			velocity.x = move_toward(velocity.x, 0, SPEED)
-			velocity.z = move_toward(velocity.z, 0, SPEED)
+	var input_dir = Vector2(h_axis, v_axis).normalized()
+	var direction = (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+	
+	if direction:
+		velocity.x = direction.x * SPEED
+		velocity.z = direction.z * SPEED
 	else:
 		velocity.x = move_toward(velocity.x, 0, SPEED)
 		velocity.z = move_toward(velocity.z, 0, SPEED)
 
 	move_and_slide()
 
-func take_damage(amount):
+@rpc("any_peer", "call_local", "reliable")
+func receive_damage(amount):
 	health -= amount
+	
+	# Обновляем полоску ХП только на своем экране
+	if is_multiplayer_authority():
+		health_bar.set_health(health)
+		
 	print("Проп получил урон! Здоровье: ", health)
 	if health <= 0:
+		print("Проп убит!")
 		queue_free()

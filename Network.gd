@@ -1,41 +1,74 @@
 extends Node
 
-# Главный узел мультиплеера WebRTC
 var multiplayer_peer = WebRTCMultiplayerPeer.new()
-# Словарь для хранения WebRTC соединений с другими игроками
 var peers = {} 
+var player_roles = {} 
 
 @onready var hunter_scene = preload("res://hunter.tscn")
 @onready var prop_scene = preload("res://prop.tscn")
 
+# Ссылки на коллбэки для JS (чтобы сборщик мусора их не удалил)
+var cb_start_host
+var cb_start_client
+var cb_create_peer
+var cb_set_remote_sdp
+var cb_add_remote_ice
+
 func _ready():
-	# Подключаем сигналы: когда кто-то зашел или вышел
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 
-	# МАГИЯ: Выставляем этот скрипт "наружу", чтобы твой файл js/main.js мог им управлять!
 	if OS.has_feature("web"):
-		JavaScriptBridge.get_interface("window").godotNetwork = self
+		# Создаем "мосты", которые JS сможет безопасно вызывать
+		cb_start_host = JavaScriptBridge.create_callback(_js_start_host)
+		cb_start_client = JavaScriptBridge.create_callback(_js_start_client)
+		cb_create_peer = JavaScriptBridge.create_callback(_js_create_peer)
+		cb_set_remote_sdp = JavaScriptBridge.create_callback(_js_set_remote_sdp)
+		cb_add_remote_ice = JavaScriptBridge.create_callback(_js_add_remote_ice)
+		
+		var win = JavaScriptBridge.get_interface("window")
+		win.godot_start_host = cb_start_host
+		win.godot_start_client = cb_start_client
+		win.godot_create_peer = cb_create_peer
+		win.godot_set_remote_sdp = cb_set_remote_sdp
+		win.godot_add_remote_ice = cb_add_remote_ice
+		win.godotNetworkReady = true # Даем сигнал браузеру, что можно подключаться
 
-# --- ФУНКЦИИ ДЛЯ ВЫЗОВА ИЗ БРАУЗЕРА (js/main.js) ---
+# --- ФУНКЦИИ-ОБЕРТКИ ДЛЯ JS (принимают параметры массивом args) ---
+func _js_start_host(args):
+	start_host()
+
+func _js_start_client(args):
+	start_client(int(args[0]))
+
+func _js_create_peer(args):
+	create_peer(int(args[0]))
+
+func _js_set_remote_sdp(args):
+	set_remote_sdp(int(args[0]), str(args[1]), str(args[2]))
+
+func _js_add_remote_ice(args):
+	add_remote_ice(int(args[0]), str(args[1]), int(args[2]), str(args[3]))
+
+# --- ОСНОВНАЯ ЛОГИКА СЕТИ ---
 
 func start_host():
 	multiplayer_peer.create_server()
 	multiplayer.multiplayer_peer = multiplayer_peer
-	spawn_player(1, true) # Хост всегда имеет ID = 1. Он будет Охотником.
+	player_roles[1] = true 
+	# УБРАНО: spawn_player_locally(1, true) - теперь спавн происходит только после кнопки "Старт" в лобби
 	print("Godot: Хост запущен (Охотник)!")
 
 func start_client(my_id: int):
 	multiplayer_peer.create_client(my_id)
 	multiplayer.multiplayer_peer = multiplayer_peer
 	print("Godot: Клиент запущен (Проп) с ID ", my_id)
+	create_peer(1) # Клиент стучится к хосту
 
 func create_peer(id: int):
 	var peer = WebRTCPeerConnection.new()
-	# Подключаемся к бесплатному STUN серверу Google для поиска друг друга в интернете
 	peer.initialize({ "iceServers": [ { "urls": ["stun:stun.l.google.com:19302"] } ] })
 	
-	# Сигналы Godot отправляют данные для Firebase в браузер (в JS)
 	peer.session_description_created.connect(self._create_offer_or_answer.bind(id))
 	peer.ice_candidate_created.connect(self._new_ice_candidate.bind(id))
 	
@@ -45,20 +78,15 @@ func create_peer(id: int):
 	if multiplayer.is_server():
 		peer.create_offer()
 
-# --- ВНУТРЕННИЕ WebRTC ФУНКЦИИ ---
-
 func _create_offer_or_answer(type: String, sdp: String, id: int):
 	peers[id].set_local_description(type, sdp)
-	# Отправляем зашифрованные данные о подключении в твой JS
 	if OS.has_feature("web"):
 		JavaScriptBridge.get_interface("window").sendSDPToFirebase(id, type, sdp)
 
 func _new_ice_candidate(media: String, index: int, name: String, id: int):
-	# Отправляем IP-адреса в твой JS
 	if OS.has_feature("web"):
 		JavaScriptBridge.get_interface("window").sendICEToFirebase(id, media, index, name)
 
-# Эти функции твой JS будет вызывать, когда получит данные из Firebase от других игроков
 func set_remote_sdp(id: int, type: String, sdp: String):
 	if peers.has(id):
 		peers[id].set_remote_description(type, sdp)
@@ -67,28 +95,37 @@ func add_remote_ice(id: int, media: String, index: int, name: String):
 	if peers.has(id):
 		peers[id].add_ice_candidate(media, index, name)
 
-# --- ИГРОВАЯ ЛОГИКА ---
+# --- ИГРОВАЯ ЛОГИКА (ПОДКЛЮЧЕНИЕ И СПАВН) ---
 
 func _on_peer_connected(id):
 	print("Godot: Игрок присоединился по WebRTC: ", id)
 	if multiplayer.is_server():
-		# Хост автоматически спавнит Пропа для нового игрока
-		spawn_player(id, false)
+		# 🔥 Теперь мы только запоминаем роль, но НЕ спавним игрока сразу, так как он ждет в лобби
+		player_roles[id] = false
 
 func _on_peer_disconnected(id):
 	print("Godot: Игрок отключился: ", id)
-	if peers.has(id):
-		peers.erase(id)
+	if peers.has(id): peers.erase(id)
+	if player_roles.has(id): player_roles.erase(id)
 	var level = get_node_or_null("/root/Level")
 	if level and level.has_node(str(id)):
 		level.get_node(str(id)).queue_free()
 
-func spawn_player(id: int, is_hunter: bool):
+func spawn_player_locally(id: int, is_hunter: bool):
 	var level = get_node_or_null("/root/Level")
 	if not level: return
+	if level.has_node(str(id)): return # Защита от двойного спавна
 	
 	var player = hunter_scene.instantiate() if is_hunter else prop_scene.instantiate()
-	
-	# ИМЯ УЗЛА ОБЯЗАТЕЛЬНО ДОЛЖНО БЫТЬ ID ИГРОКА! Иначе синхронизация не поймет, кто есть кто.
 	player.name = str(id)
+	
+	# 🔥 Безопасный спавн: на высоте 5 метров и немного вразброс, чтобы не застрять в полу или друг в друге
+	var random_x = randf_range(-5.0, 5.0)
+	var random_z = randf_range(-5.0, 5.0)
+	player.position = Vector3(random_x, 5.0, random_z)
+	
 	level.add_child(player)
+
+@rpc("authority", "call_remote", "reliable")
+func remote_spawn_player(id: int, is_hunter: bool):
+	spawn_player_locally(id, is_hunter)

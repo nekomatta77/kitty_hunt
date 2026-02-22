@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="KittyHunt"
-run/main_scene="uid://6nrufu2exwe4"
+run/main_scene="uid://de4ej0r61mine"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 config/icon="res://icon.svg"
 

@@ -5,22 +5,29 @@ const JUMP_VELOCITY = 4.5
 var mouse_sensitivity = 0.002
 var gravity = ProjectSettings.get_setting("physics/3d/default_gravity")
 
-var health = 100 # Здоровье Охотника
+var health = 100.0 
 
 @onready var camera = $Camera3D
 @onready var raycast = $Camera3D/RayCast3D
-@onready var health_bar = $MobileUI/HealthBar # Ссылка на новую полоску ХП
 @onready var mobile_ui = $MobileUI
+
+var health_bar = null
 
 func _ready():
 	raycast.add_exception(self)
 	
+	for child in mobile_ui.get_children():
+		if child.has_method("set_health"):
+			health_bar = child
+			break
+	
 	if is_multiplayer_authority():
 		camera.current = true
-		mobile_ui.show() # Показываем интерфейс только себе
-		health_bar.set_health(health) # Инициализируем полоску ХП
+		mobile_ui.show()
+		if health_bar:
+			health_bar.set_health(health)
 	else:
-		mobile_ui.hide() # Прячем чужой интерфейс
+		mobile_ui.hide()
 
 func _enter_tree():
 	var id = name.to_int()
@@ -49,21 +56,16 @@ func _unhandled_input(event):
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 		shoot()
 
-# Найди функцию shoot() и замени ее
 func shoot():
 	raycast.force_raycast_update()
 	if raycast.is_colliding():
 		var target = raycast.get_collider()
 		if target.has_method("receive_damage"):
-			# 🔥 ФИКС: Строгий синтаксис Godot 4 для вызова RPC на конкретном узле
-			target.receive_damage.rpc(25.0) 
-			print("Попал в Пропа!")
+			target.rpc("receive_damage", 25.0)
 		else:
-			receive_damage.rpc(10.0)
-			print("Промазал! Минус 10 ХП")
+			rpc("receive_damage", 10.0)
 	else:
-		receive_damage.rpc(10.0)
-		print("Промазал в молоко! Минус 10 ХП")
+		rpc("receive_damage", 10.0)
 
 func _physics_process(delta):
 	if not is_multiplayer_authority(): return 
@@ -93,15 +95,27 @@ func _physics_process(delta):
 
 	move_and_slide()
 
-# Сетевая функция урона для Охотника
 @rpc("any_peer", "call_local", "reliable")
-func receive_damage(amount):
-	health -= amount
-	
-	# Обновляем полоску ХП только на своем экране
+func receive_damage(amount: float):
 	if is_multiplayer_authority():
-		health_bar.set_health(health)
+		health -= amount
+		if health_bar: health_bar.set_health(health)
 		
-	if health <= 0:
-		print("Охотник убит! Пропы победили!")
-		queue_free()
+		if health <= 0:
+			rpc("die_rpc")
+		else:
+			rpc("sync_health", health)
+
+@rpc("authority", "call_remote", "reliable")
+func sync_health(new_health: float):
+	health = new_health
+
+@rpc("authority", "call_local", "reliable")
+func die_rpc():
+	queue_free()
+	
+	# === ВАЖНО: Если охотник умер - пропы досрочно победили ===
+	if multiplayer.is_server():
+		var level = get_node_or_null("/root/Level")
+		if level and level.has_method("show_game_over"):
+			level.rpc("show_game_over", false)

@@ -33,6 +33,15 @@ func update_positions():
 	action_pos = Vector2(screen_size.x - 280, screen_size.y - 200)
 	queue_redraw()
 
+# ПУЛЕНЕПРОБИВАЕМЫЙ ПОИСК ИГРОКА: Идем вверх по дереву, пока не найдем CharacterBody3D
+func _get_player():
+	var p = get_parent()
+	while p != null:
+		if p is CharacterBody3D:
+			return p
+		p = p.get_parent()
+	return null
+
 func _input(event):
 	if not visible: return
 	
@@ -76,7 +85,7 @@ func _input(event):
 			update_joystick(event.position)
 			handled = true
 		elif event.index == jump_touch_id or event.index == action_touch_id:
-			handled = true
+			handled = true 
 			
 		if handled:
 			get_viewport().set_input_as_handled()
@@ -105,8 +114,7 @@ func simulate_joystick_input():
 	else: Input.action_release("ui_down")
 
 func trigger_action():
-	# ИСПОЛЬЗУЕМ OWNER ДЛЯ НАДЕЖНОЙ СВЯЗИ СО СКРИПТОМ ИГРОКА
-	var player = owner 
+	var player = _get_player()
 	if player:
 		if player.has_method("shoot"):
 			player.shoot()
@@ -119,13 +127,13 @@ func _draw():
 	draw_circle(joy_stick_pos, joy_radius * 0.4, Color(1, 1, 1, stick_alpha))
 	
 	var jump_alpha = 0.8 if jump_touch_id != -1 else 0.4
-	draw_circle(jump_pos, btn_radius, Color(0.2, 0.8, 0.4, jump_alpha))
+	draw_circle(jump_pos, btn_radius, Color(0.2, 0.6, 0.9, jump_alpha))
 	
 	var action_alpha = 0.8 if action_touch_id != -1 else 0.4
-	var action_color = Color(0.9, 0.2, 0.2, action_alpha) 
+	var player = _get_player()
+	var action_color = Color(0.2, 0.8, 0.4, action_alpha) # Зеленая (для охотника)
 	
-	var player = owner
 	if player and player.has_method("try_transform"):
-		action_color = Color(0.6, 0.2, 0.9, action_alpha) 
+		action_color = Color(0.6, 0.2, 0.9, action_alpha) # Фиолетовая (для пропа)
 		
 	draw_circle(action_pos, btn_radius, action_color)

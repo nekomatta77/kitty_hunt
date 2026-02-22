@@ -18,19 +18,29 @@ var hitmarker_node: Control
 var hm_tween: Tween
 var fg_style: StyleBoxFlat
 
+func _enter_tree():
+	var id = name.to_int()
+	if id == 0: id = 1 
+	set_multiplayer_authority(id)
+
 func _ready():
 	raycast.add_exception(self)
 	
-	if mobile_ui:
-		for child in mobile_ui.get_children():
-			if child.has_method("set_health"):
-				original_health_bar = child
-				child.hide() 
-	
+	# ПАНАЦЕЯ ОТ БАГОВ ИНТЕРФЕЙСА:
+	# Только МЫ владеем своим экраном. Удаляем интерфейсы чужих игроков!
 	if is_multiplayer_authority():
 		camera.current = true
 		_setup_beautiful_ui()
 		update_hp_visual(health)
+		
+		if mobile_ui:
+			for child in mobile_ui.get_children():
+				if child.has_method("set_health"):
+					original_health_bar = child
+					child.hide() 
+	else:
+		if mobile_ui:
+			mobile_ui.queue_free()
 
 func _setup_beautiful_ui():
 	var canvas = CanvasLayer.new()
@@ -41,7 +51,6 @@ func _setup_beautiful_ui():
 	root_ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(root_ui)
 	
-	# === КРОССХАЕР И КРАСИВЫЙ ХИТМАРКЕР ===
 	var center_box = CenterContainer.new()
 	center_box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	center_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -60,7 +69,6 @@ func _setup_beautiful_ui():
 	hitmarker_node.pivot_offset = Vector2(20, 20)
 	center_box.add_child(hitmarker_node)
 	
-	# Рисуем 4 диагональные линии хитмаркера
 	var angles = [45, 135, 225, 315]
 	for angle in angles:
 		var line = ColorRect.new()
@@ -75,17 +83,16 @@ func _setup_beautiful_ui():
 		
 	hitmarker_node.modulate.a = 0 
 	
-	# === СОВРЕМЕННЫЙ HUD ЗДОРОВЬЯ (В ЛЕВОМ ВЕРХНЕМ УГЛУ) ===
 	var hp_margin = MarginContainer.new()
 	hp_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	hp_margin.add_theme_constant_override("margin_left", 40)
-	hp_margin.add_theme_constant_override("margin_top", 40) # Отступ от верхнего края
+	hp_margin.add_theme_constant_override("margin_top", 40) 
 	hp_margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root_ui.add_child(hp_margin)
 	
 	var hp_vbox = VBoxContainer.new()
-	hp_vbox.alignment = BoxContainer.ALIGNMENT_BEGIN # Прижимаем к верху экрана
-	hp_vbox.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN # Прижимаем к левому краю
+	hp_vbox.alignment = BoxContainer.ALIGNMENT_BEGIN 
+	hp_vbox.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN 
 	hp_margin.add_child(hp_vbox)
 	
 	var hp_label = Label.new()
@@ -144,19 +151,18 @@ func update_hp_visual(new_health: float):
 	if original_health_bar:
 		original_health_bar.set_health(new_health)
 
-func _enter_tree():
-	var id = name.to_int()
-	if id == 0: id = 1 
-	set_multiplayer_authority(id)
-
 func _unhandled_input(event):
 	if not is_multiplayer_authority(): return
 		
 	var is_valid_drag = false
-	if event is InputEventMouseMotion:
-		is_valid_drag = true
-	elif event is InputEventScreenDrag:
-		if event.position.x > get_viewport().size.x / 2.0:
+	var is_mobile = OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios")
+	
+	if is_mobile:
+		if event is InputEventScreenDrag:
+			if event.position.x > get_viewport().size.x / 2.0:
+				is_valid_drag = true
+	else:
+		if event is InputEventMouseMotion:
 			is_valid_drag = true
 
 	if is_valid_drag:
@@ -169,7 +175,8 @@ func _unhandled_input(event):
 		
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
-		shoot()
+		if not is_mobile:
+			shoot()
 
 func shoot():
 	raycast.force_raycast_update()

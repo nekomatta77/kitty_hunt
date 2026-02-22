@@ -9,8 +9,7 @@ var my_name = "Игрок"
 @onready var hunter_scene = preload("res://hunter.tscn")
 @onready var prop_scene = preload("res://prop.tscn")
 
-var cb_start_host;
-var cb_start_client; var cb_create_peer
+var cb_start_host; var cb_start_client; var cb_create_peer
 var cb_set_remote_sdp; var cb_add_remote_ice
 
 func _ready():
@@ -20,15 +19,16 @@ func _ready():
 	if OS.has_feature("web"):
 		var js_code = """
 			(function() {
+				var params = new URLSearchParams(window.location.search);
+				var user = params.get('user');
+				if (user) return decodeURIComponent(user);
+				
 				if (window.playerName) return window.playerName;
-				if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
-					return window.Telegram.WebApp.initDataUnsafe.user.first_name;
-				}
 				return null;
 			})();
 		"""
 		var fetched_name = JavaScriptBridge.eval(js_code)
-		if fetched_name and str(fetched_name).strip_edges() != "" and not str(fetched_name).is_valid_int():
+		if fetched_name and str(fetched_name).strip_edges() != "" and str(fetched_name) != "null":
 			my_name = str(fetched_name)
 		else:
 			my_name = "Игрок " + str(randi() % 999)
@@ -66,16 +66,20 @@ func start_client(my_id: int):
 	multiplayer_peer.create_client(my_id)
 	multiplayer.multiplayer_peer = multiplayer_peer
 	player_names[my_id] = my_name
-	create_peer(1)
 
 func create_peer(id: int):
+	if peers.has(id): return # Защита от дубликатов
 	var peer = WebRTCPeerConnection.new()
 	peer.initialize({ "iceServers": [ { "urls": ["stun:stun.l.google.com:19302"] } ] })
 	peer.session_description_created.connect(self._create_offer_or_answer.bind(id))
 	peer.ice_candidate_created.connect(self._new_ice_candidate.bind(id))
 	multiplayer_peer.add_peer(peer, id)
 	peers[id] = peer
-	if multiplayer.is_server(): peer.create_offer()
+	
+	# MESH NETWORK МАГИЯ: Хост всегда предлагает, клиенты между собой решают по ID
+	var my_id = multiplayer.get_unique_id()
+	if multiplayer.is_server() or my_id > id:
+		peer.create_offer()
 
 func _create_offer_or_answer(type: String, sdp: String, id: int):
 	peers[id].set_local_description(type, sdp)
@@ -93,13 +97,23 @@ func add_remote_ice(id: int, media: String, index: int, name: String):
 func _on_peer_connected(id):
 	if multiplayer.is_server(): 
 		player_roles[id] = false
-		
+		for existing_id in player_names.keys():
+			rpc_id(id, "sync_player_name", existing_id, player_names[existing_id])
+			
 	rpc_id(id, "sync_player_name", multiplayer.get_unique_id(), my_name)
+	
+	# МГНОВЕННЫЙ СПАВН: Если кто-то присоединился во время игры - спавним его
+	spawn_player_locally(id, id == 1)
 
 @rpc("any_peer", "call_local", "reliable")
 func sync_player_name(peer_id: int, nickname: String):
 	player_names[peer_id] = nickname
 	_refresh_lobby_ui()
+	
+	if multiplayer.is_server() and peer_id != 1:
+		for id in multiplayer.get_peers():
+			if id != peer_id:
+				rpc_id(id, "sync_player_name", peer_id, nickname)
 
 func _refresh_lobby_ui():
 	var scene = get_tree().current_scene
@@ -114,7 +128,6 @@ func _on_peer_disconnected(id):
 	var level = get_tree().current_scene
 	if level and level.has_node(str(id)):
 		var player_node = level.get_node(str(id))
-		# МГНОВЕННАЯ ПРОВЕРКА ПОБЕДЫ ПРИ ВЫХОДЕ ИГРОКА
 		if multiplayer.is_server():
 			if player_node.is_in_group("player_props") and level.has_method("check_hunter_win"):
 				level.check_hunter_win(player_node)
@@ -124,7 +137,8 @@ func _on_peer_disconnected(id):
 
 func spawn_player_locally(id: int, is_hunter: bool):
 	var level = get_tree().current_scene
-	if not level or level.has_node(str(id)): return 
+	# Надежная проверка: спавним только если мы на карте (Level)
+	if not level or not level.has_method("check_hunter_win") or level.has_node(str(id)): return 
 	
 	var player = hunter_scene.instantiate() if is_hunter else prop_scene.instantiate()
 	player.name = str(id)
@@ -134,7 +148,3 @@ func spawn_player_locally(id: int, is_hunter: bool):
 	var spawn_z = float((id * 2) % 3) * 3.0 - 3.0
 	player.position = Vector3(spawn_x, 5.0, spawn_z)
 	level.add_child(player)
-
-@rpc("authority", "call_remote", "reliable")
-func remote_spawn_player(id: int, is_hunter: bool):
-	spawn_player_locally(id, is_hunter)

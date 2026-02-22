@@ -18,14 +18,16 @@ func _ready():
 	
 	setup_ui()
 	
+	# ИДЕАЛЬНЫЙ СИНХРОННЫЙ СПАВН
+	# Спавним самих себя
+	var my_id = multiplayer.get_unique_id()
+	Network.spawn_player_locally(my_id, my_id == 1)
+	
+	# Спавним всех, с кем у нас уже есть WebRTC связь!
+	for id in multiplayer.get_peers():
+		Network.spawn_player_locally(id, id == 1)
+			
 	if multiplayer.is_server():
-		Network.spawn_player_locally(1, true)
-		for id in Network.player_roles:
-			if id != 1:
-				Network.spawn_player_locally(id, false)
-				Network.rpc("remote_spawn_player", id, false)
-				Network.rpc_id(id, "remote_spawn_player", 1, true)
-		
 		call_deferred("start_game")
 
 func start_game():
@@ -65,14 +67,11 @@ func update_timer_ui():
 	else:
 		timer_label.add_theme_color_override("font_color", Color(1, 1, 1))
 
-# === ИДЕАЛЬНАЯ МЕХАНИКА ПОБЕДЫ В РЕАЛЬНОМ ВРЕМЕНИ ===
-# Теперь мы передаем умирающего игрока, чтобы игра не ждала окончания кадра!
 func check_hunter_win(dying_node = null):
 	if not game_active or not multiplayer.is_server(): return
 	
 	var alive_props = 0
 	for prop in get_tree().get_nodes_in_group("player_props"):
-		# Считаем живых пропов, исключая того, кто прямо сейчас умирает
 		if prop != dying_node and is_instance_valid(prop) and not prop.is_queued_for_deletion():
 			alive_props += 1
 			

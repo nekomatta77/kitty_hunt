@@ -8,25 +8,18 @@ var main_panel: PanelContainer
 var ready_overlay: ColorRect 
 var modern_font: SystemFont
 
-var ready_states = {} 
-
 func _ready():
 	modern_font = SystemFont.new()
 	modern_font.font_names = PackedStringArray(["Montserrat", "Segoe UI", "Roboto", "Helvetica", "sans-serif"])
 	modern_font.font_weight = 700
 	
 	_build_ui()
-	
-	multiplayer.peer_connected.connect(_on_peer_connected)
-	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 	get_tree().root.size_changed.connect(_update_ui_size)
 	_update_ui_size()
 	
-	var timer = Timer.new()
-	timer.wait_time = 1.0
-	timer.autostart = true
-	timer.timeout.connect(refresh_players)
-	add_child(timer)
+	# Подписываемся на сигнал из Network.gd. Когда данные меняются, мы перерисовываем лобби.
+	Network.lobby_updated.connect(_on_lobby_updated)
+	_on_lobby_updated() # Первичная отрисовка
 
 func _build_ui():
 	for child in get_children():
@@ -182,36 +175,54 @@ func _update_ui_size():
 	else:
 		main_panel.custom_minimum_size = Vector2(500, 600)
 
-func _on_peer_connected(id: int):
-	if multiplayer.is_server():
-		for peer_id in ready_states:
-			if ready_states[peer_id]:
-				set_player_ready.rpc_id(id, peer_id, true)
-	refresh_players()
-
-func _on_peer_disconnected(id: int):
-	ready_states.erase(id)
-	refresh_players()
-	if multiplayer.is_server():
-		_check_all_ready()
-
-func refresh_players():
+# ЭТА ФУНКЦИЯ ВЫЗЫВАЕТСЯ АВТОМАТИЧЕСКИ ПРИ ЛЮБОМ ИЗМЕНЕНИИ ДАННЫХ В СЕТИ
+func _on_lobby_updated():
 	for child in player_list_container.get_children():
+		player_list_container.remove_child(child)
 		child.queue_free()
 		
-	var is_host = multiplayer.is_server()
-	var my_id = multiplayer.get_unique_id()
+	map_select.disabled = not Network.is_host_mode
 	
-	map_select.disabled = not is_host
-	status_label.text = "Роль: Охотник (Хост)" if is_host else "Роль: Проп"
+	if not Network.is_network_active:
+		status_label.text = "Ожидание инициализации сети..."
+		ready_button.disabled = true
+		return
+		
+	var connected_peers = multiplayer.get_peers()
+	var is_fully_connected = Network.is_host_mode or connected_peers.size() > 0
+	
+	if not is_fully_connected:
+		status_label.text = "Подключение к хосту..."
+		ready_button.disabled = true
+	else:
+		ready_button.disabled = false
+		status_label.text = "Роль: Охотник (Хост)" if Network.is_host_mode else "Роль: Проп"
 
-	var display_my_name = Network.my_name + " (Вы)"
-	_add_player_ui(display_my_name, is_host, ready_states.get(my_id, false))
-	
-	for peer in multiplayer.get_peers():
-		var peer_is_host = (peer == 1)
-		var peer_name = Network.player_names.get(peer, "Игрок подключается...")
-		_add_player_ui(peer_name, peer_is_host, ready_states.get(peer, false))
+	var my_id = multiplayer.get_unique_id() if Network.is_network_active else 1
+	var am_i_ready = false
+
+	# Отрисовываем всех игроков на основе Центрального Словаря Network
+	for peer_id in Network.player_data:
+		var p_data = Network.player_data[peer_id]
+		var display_name = p_data.name
+		if peer_id == my_id:
+			display_name += " (Вы)"
+			am_i_ready = p_data.is_ready
+			
+		_add_player_ui(display_name, p_data.is_host, p_data.is_ready)
+
+	# Логика экрана ожидания "Ожидание остальных..."
+	if am_i_ready:
+		ready_overlay.modulate = Color(1,1,1,0)
+		ready_overlay.show()
+		var tween = create_tween()
+		if tween: tween.tween_property(ready_overlay, "modulate", Color(1,1,1,1), 0.3)
+	else:
+		ready_overlay.hide()
+
+	# Проверка: если мы хост и все игроки готовы - запускаем игру!
+	if Network.is_host_mode:
+		_check_start_game()
 
 func _add_player_ui(p_name: String, is_host: bool, is_ready: bool):
 	var panel = PanelContainer.new()
@@ -235,7 +246,7 @@ func _add_player_ui(p_name: String, is_host: bool, is_ready: bool):
 	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var icon_style = StyleBoxFlat.new()
 	icon_style.bg_color = Color(1, 0.4, 0.4) if is_host else Color(0.4, 0.7, 1)
-	icon_style.set_corner_radius_all(10) # Круглая иконка
+	icon_style.set_corner_radius_all(10)
 	icon.add_theme_stylebox_override("panel", icon_style)
 	
 	var lbl = Label.new()
@@ -260,43 +271,33 @@ func _add_player_ui(p_name: String, is_host: bool, is_ready: bool):
 	player_list_container.add_child(panel)
 
 func _on_ready_pressed():
-	var my_id = multiplayer.get_unique_id()
-	var current_state = ready_states.get(my_id, false)
-	set_player_ready.rpc(my_id, not current_state)
-
-@rpc("any_peer", "call_local", "reliable")
-func set_player_ready(id: int, is_ready: bool):
-	ready_states[id] = is_ready
-	refresh_players()
+	if not Network.is_network_active: return
 	
-	if id == multiplayer.get_unique_id():
-		if is_ready:
-			ready_overlay.modulate = Color(1,1,1,0)
-			ready_overlay.show()
-			var tween = create_tween()
-			tween.tween_property(ready_overlay, "modulate", Color(1,1,1,1), 0.3)
-		else:
-			ready_overlay.hide()
-			
-	if multiplayer.is_server():
-		_check_all_ready()
+	if Network.is_host_mode:
+		# Хост меняет свой статус напрямую
+		Network.toggle_host_ready()
+	else:
+		# Клиент просит сервер изменить его статус (отправляет RPC)
+		Network.request_ready_toggle.rpc_id(1)
 
-func _check_all_ready():
-	var peers = multiplayer.get_peers()
-	if peers.size() == 0: 
-		return 
-		
-	var all_ready = ready_states.get(1, false) 
-	for peer in peers:
-		if not ready_states.get(peer, false): 
+func _check_start_game():
+	if Network.player_data.size() == 0: return
+	
+	var all_ready = true
+	for id in Network.player_data:
+		if not Network.player_data[id].is_ready:
 			all_ready = false
 			break
 			
-	if all_ready:
+	if all_ready and Network.player_data.size() > 0:
 		start_game_for_all.rpc(map_select.selected)
 
 @rpc("authority", "call_local", "reliable")
 func start_game_for_all(map_index: int):
+	print("[Lobby] Запуск игры! Загрузка level.tscn")
 	if OS.has_feature("web"):
 		JavaScriptBridge.eval("try { document.documentElement.requestFullscreen(); } catch(e) {}")
-	get_tree().change_scene_to_file("res://level.tscn")
+	
+	# ИСПРАВЛЕНИЕ: Откладываем смену сцены на конец кадра, 
+	# чтобы Godot успел безопасно обработать нажатия кнопок (touch_cb)
+	get_tree().call_deferred("change_scene_to_file", "res://level.tscn")

@@ -7,6 +7,7 @@ var mouse_sensitivity = 0.002
 var gravity = ProjectSettings.get_setting("physics/3d/default_gravity")
 
 var health = 100.0 
+var can_transform = true 
 
 @onready var spring_arm = $SpringArm3D
 @onready var camera = $SpringArm3D/Camera3D
@@ -26,6 +27,10 @@ func _enter_tree():
 
 func _ready():
 	spring_arm.add_excluded_object(self.get_rid())
+	
+	for sync_node in find_children("*", "MultiplayerSynchronizer", true, false):
+		sync_node.replication_interval = 0.05 
+		sync_node.delta_interval = 0.05
 	
 	if is_multiplayer_authority():
 		camera.current = true
@@ -144,17 +149,25 @@ func _unhandled_input(event):
 	if event.is_action_pressed("ui_cancel"):
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		
+	# ИСПРАВЛЕНИЕ: Блокируем захват мыши для мобильных устройств (защита от ошибок браузера)
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 		if not is_mobile:
+			if Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
+				Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 			try_transform()
 
 func try_transform():
+	if not can_transform: return
+	can_transform = false 
+	
 	raycast.force_raycast_update()
 	if raycast.is_colliding():
 		var target = raycast.get_collider()
 		if target.is_in_group("player_props") or target.is_in_group("props") or target.is_in_group("map_props"):
-			rpc("sync_transform", str(target.get_path()))
+			sync_transform.rpc(str(target.get_path())) 
+			
+	await get_tree().create_timer(0.5).timeout
+	can_transform = true
 
 @rpc("authority", "call_local", "reliable")
 func sync_transform(target_path: String):
@@ -201,15 +214,14 @@ func receive_damage(amount: float):
 		update_hp_visual(health)
 		
 		if health <= 0:
-			rpc("die_rpc") 
+			die_rpc.rpc() 
 		else:
-			rpc("sync_health", health) 
+			sync_health.rpc(health) 
 
 @rpc("authority", "call_remote", "reliable")
 func sync_health(new_health: float):
 	health = new_health
-	if is_multiplayer_authority():
-		update_hp_visual(new_health)
+	update_hp_visual(new_health)
 
 @rpc("authority", "call_local", "reliable")
 func die_rpc():

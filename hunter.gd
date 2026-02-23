@@ -7,6 +7,7 @@ var mouse_sensitivity = 0.002
 var gravity = ProjectSettings.get_setting("physics/3d/default_gravity")
 
 var health = 100.0 
+var can_shoot = true 
 
 @onready var camera = $Camera3D
 @onready var raycast = $Camera3D/RayCast3D
@@ -26,8 +27,10 @@ func _enter_tree():
 func _ready():
 	raycast.add_exception(self)
 	
-	# ПАНАЦЕЯ ОТ БАГОВ ИНТЕРФЕЙСА:
-	# Только МЫ владеем своим экраном. Удаляем интерфейсы чужих игроков!
+	for sync_node in find_children("*", "MultiplayerSynchronizer", true, false):
+		sync_node.replication_interval = 0.05 
+		sync_node.delta_interval = 0.05
+	
 	if is_multiplayer_authority():
 		camera.current = true
 		_setup_beautiful_ui()
@@ -174,34 +177,28 @@ func _unhandled_input(event):
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 		if not is_mobile:
+			if Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
+				Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 			shoot()
 
-func shoot():
-	raycast.force_raycast_update()
-	if raycast.is_colliding():
-		var target = raycast.get_collider()
-		if target != self and target.has_method("receive_damage"):
-			target.rpc("receive_damage", 25.0)
-			flash_hitmarker() 
-		else:
-			rpc("receive_damage", 10.0)
-	else:
-		rpc("receive_damage", 10.0)
-
+# --- ВОТ ЭТА ФУНКЦИЯ БЫЛА ПОТЕРЯНА ---
 func _physics_process(delta):
-	if not is_multiplayer_authority(): return 
+	if not is_multiplayer_authority(): return
 
+	# Гравитация
 	if not is_on_floor():
 		velocity.y -= gravity * delta
 
+	# Прыжок
 	if Input.is_physical_key_pressed(KEY_SPACE) or Input.is_action_just_pressed("ui_accept"):
 		if is_on_floor():
 			velocity.y = JUMP_VELOCITY
 
+	# Управление с клавиатуры (WASD / Стрелочки)
 	var h_axis = int(Input.is_physical_key_pressed(KEY_D)) - int(Input.is_physical_key_pressed(KEY_A))
 	if h_axis == 0: h_axis = Input.get_axis("ui_left", "ui_right")
+	
 	var v_axis = int(Input.is_physical_key_pressed(KEY_S)) - int(Input.is_physical_key_pressed(KEY_W))
 	if v_axis == 0: v_axis = Input.get_axis("ui_up", "ui_down")
 
@@ -220,6 +217,25 @@ func _physics_process(delta):
 		velocity.z = move_toward(velocity.z, 0, current_speed)
 
 	move_and_slide()
+# -------------------------------------
+
+func shoot():
+	if not can_shoot: return
+	can_shoot = false 
+	
+	raycast.force_raycast_update()
+	if raycast.is_colliding():
+		var target = raycast.get_collider()
+		if target != self and target.has_method("receive_damage"):
+			target.receive_damage.rpc_id(target.get_multiplayer_authority(), 25.0)
+			flash_hitmarker() 
+		else:
+			receive_damage(10.0) 
+	else:
+		receive_damage(10.0) 
+
+	await get_tree().create_timer(0.5).timeout
+	can_shoot = true
 
 @rpc("any_peer", "call_local", "reliable")
 func receive_damage(amount: float):
@@ -228,15 +244,14 @@ func receive_damage(amount: float):
 		update_hp_visual(health)
 		
 		if health <= 0:
-			rpc("die_rpc")
+			die_rpc.rpc() 
 		else:
-			rpc("sync_health", health)
+			sync_health.rpc(health)
 
 @rpc("authority", "call_remote", "reliable")
 func sync_health(new_health: float):
 	health = new_health
-	if is_multiplayer_authority():
-		update_hp_visual(new_health)
+	update_hp_visual(new_health)
 
 @rpc("authority", "call_local", "reliable")
 func die_rpc():

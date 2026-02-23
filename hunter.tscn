@@ -3,6 +3,10 @@
 [ext_resource type="Script" uid="uid://cpegxs6vtjgxf" path="res://hunter.gd" id="1_h1phl"]
 [ext_resource type="Script" uid="uid://dvmlscf5bf3if" path="res://mobile_controls.gd" id="2_hgowg"]
 [ext_resource type="Script" uid="uid://jdcvygltf1s8" path="res://health_bar.gd" id="3_ink7b"]
+[ext_resource type="PackedScene" uid="uid://dhultnr1fofay" path="res://assets/models/hunter/character.fbx" id="4_gur1f"]
+[ext_resource type="Animation" uid="uid://0uy3wt458qrm" path="res://assets/models/hunter/animations/idle.res" id="5_sx8dt"]
+[ext_resource type="Animation" uid="uid://bsndok7teqygq" path="res://assets/models/hunter/animations/jump.res" id="6_oc4tt"]
+[ext_resource type="Animation" uid="uid://dbttissvv5rfy" path="res://assets/models/hunter/animations/run.res" id="7_4moo6"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_ukqli"]
 
@@ -14,7 +18,12 @@ properties/1/path = NodePath(".:rotation")
 properties/1/spawn = true
 properties/1/replication_mode = 1
 
-[sub_resource type="CapsuleMesh" id="CapsuleMesh_hgowg"]
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_8we0j"]
+_data = {
+&"idle": ExtResource("5_sx8dt"),
+&"jump": ExtResource("6_oc4tt"),
+&"run": ExtResource("7_4moo6")
+}
 
 [node name="Hunter" type="CharacterBody3D" unique_id=769471397]
 script = ExtResource("1_h1phl")
@@ -23,7 +32,7 @@ script = ExtResource("1_h1phl")
 shape = SubResource("CapsuleShape3D_ukqli")
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=2129464917]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5294558, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.014547169, 0.48857337, -0.39994597)
 
 [node name="RayCast3D" type="RayCast3D" parent="Camera3D" unique_id=1872034259]
 target_position = Vector3(0, 0, -50)
@@ -51,5 +60,9 @@ offset_right = 320.0
 offset_bottom = 50.0
 script = ExtResource("3_ink7b")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=2125893512]
-mesh = SubResource("CapsuleMesh_hgowg")
+[node name="character" parent="." unique_id=328557731 instance=ExtResource("4_gur1f")]
+transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 0, -1.15, 0.001)
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=2004117645]
+root_node = NodePath("../character")
+libraries/hunter = SubResource("AnimationLibrary_8we0j")

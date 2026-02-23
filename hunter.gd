@@ -1,15 +1,18 @@
 extends CharacterBody3D
 
+# --- Настройки движения ---
 const WALK_SPEED = 5.0
 const SPRINT_SPEED = 8.0 
 const JUMP_VELOCITY = 4.5
 var mouse_sensitivity = 0.002
 var gravity = ProjectSettings.get_setting("physics/3d/default_gravity")
 
+# --- Состояние персонажа ---
 var health = 100.0 
 var can_shoot = true 
+var current_anim_state = "" # Переменная для хранения текущего состояния анимации
 
-# --- ПЕРЕМЕННЫЕ ДЛЯ ИДЕАЛЬНОЙ МОБИЛЬНОЙ КАМЕРЫ ---
+# --- Переменные для мобильной камеры ---
 var camera_touch_index: int = -1
 var last_camera_touch_pos: Vector2 = Vector2.ZERO
 
@@ -17,6 +20,10 @@ var last_camera_touch_pos: Vector2 = Vector2.ZERO
 @onready var raycast = $Camera3D/RayCast3D
 @onready var mobile_ui = $MobileUI 
 
+# --- АНИМАЦИИ ---
+@onready var anim_player = $AnimationPlayer 
+
+# --- UI элементы ---
 var original_health_bar = null
 var custom_hp_bar: ProgressBar
 var hitmarker_node: Control
@@ -32,8 +39,8 @@ func _ready():
 	raycast.add_exception(self)
 	
 	for sync_node in find_children("*", "MultiplayerSynchronizer", true, false):
-		sync_node.replication_interval = 0.05 
-		sync_node.delta_interval = 0.05
+		sync_node.replication_interval = 0.016
+		sync_node.delta_interval = 0.016
 	
 	if is_multiplayer_authority():
 		camera.current = true
@@ -48,6 +55,9 @@ func _ready():
 	else:
 		if mobile_ui:
 			mobile_ui.queue_free()
+		# Для пропов (клиентов) сразу ставим базовую позу
+		current_anim_state = "hunter/idle"
+		_play_anim(current_anim_state)
 
 func _setup_beautiful_ui():
 	var canvas = CanvasLayer.new()
@@ -103,15 +113,13 @@ func _setup_beautiful_ui():
 	hp_margin.add_child(hp_vbox)
 	
 	var hp_label = Label.new()
-	hp_label.text = "ЗДОРОВЬЕ ОХОТНИКА"
+	hp_label.text = "ОХОТНИК"
 	var modern_font = SystemFont.new()
 	modern_font.font_names = PackedStringArray(["Montserrat", "Segoe UI", "sans-serif"])
 	modern_font.font_weight = 800
 	hp_label.add_theme_font_override("font", modern_font)
 	hp_label.add_theme_font_size_override("font_size", 20)
 	hp_label.add_theme_color_override("font_color", Color(1, 1, 1, 0.95))
-	hp_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.6))
-	hp_label.add_theme_constant_override("shadow_offset_y", 2)
 	hp_vbox.add_child(hp_label)
 	
 	custom_hp_bar = ProgressBar.new()
@@ -123,14 +131,10 @@ func _setup_beautiful_ui():
 	var bg_style = StyleBoxFlat.new()
 	bg_style.bg_color = Color(0.1, 0.1, 0.1, 0.7)
 	bg_style.set_corner_radius_all(8)
-	bg_style.set_border_width_all(2)
-	bg_style.border_color = Color(0.0, 0.0, 0.0, 0.8)
 	
 	fg_style = StyleBoxFlat.new()
 	fg_style.bg_color = Color(0.2, 0.8, 0.3)
 	fg_style.set_corner_radius_all(6)
-	fg_style.set_border_width_all(2)
-	fg_style.border_color = Color(0.4, 1.0, 0.5, 0.3) 
 	
 	custom_hp_bar.add_theme_stylebox_override("background", bg_style)
 	custom_hp_bar.add_theme_stylebox_override("fill", fg_style)
@@ -166,37 +170,23 @@ func _unhandled_input(event):
 	if is_mobile:
 		if event is InputEventScreenTouch:
 			if event.pressed:
-				# Захватываем палец только если еще нет активного
 				if camera_touch_index == -1:
 					var screen_size = get_viewport().size
-					# ИДЕАЛЬНАЯ ЗОНА: Правая половина, верхние 75%
-					if event.position.x > screen_size.x * 0.5 and event.position.y < screen_size.y * 0.75:
+					if event.position.x > screen_size.x * 0.5:
 						camera_touch_index = event.index
-						last_camera_touch_pos = event.position # Запоминаем точку касания
+						last_camera_touch_pos = event.position
 			else:
-				# Если отпустили именно этот палец - сбрасываем захват
 				if event.index == camera_touch_index:
 					camera_touch_index = -1
 					
 		elif event is InputEventScreenDrag:
 			if event.index == camera_touch_index:
-				# РУЧНОЙ РАСЧЕТ ДЕЛЬТЫ (Защита от дергания HTML5 WebGL)
 				var manual_relative = event.position - last_camera_touch_pos
 				last_camera_touch_pos = event.position
-				
-				# Вращаем камеру
-				var mobile_sens = mouse_sensitivity * 1.5
-				rotate_y(-manual_relative.x * mobile_sens)
-				camera.rotate_x(-manual_relative.y * mobile_sens)
+				rotate_y(-manual_relative.x * mouse_sensitivity * 1.5)
+				camera.rotate_x(-manual_relative.y * mouse_sensitivity * 1.5)
 				camera.rotation.x = clamp(camera.rotation.x, deg_to_rad(-80), deg_to_rad(80))
-				
-		# ЖЕЛЕЗНАЯ ЗАЩИТА: На мобилках полностью игнорируем ложные сигналы мыши
-		if event is InputEventMouseMotion:
-			get_viewport().set_input_as_handled()
-			return
-
 	else: 
-		# --- ЛОГИКА ДЛЯ ПК ---
 		if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 			rotate_y(-event.relative.x * mouse_sensitivity)
 			camera.rotate_x(-event.relative.y * mouse_sensitivity)
@@ -211,6 +201,7 @@ func _unhandled_input(event):
 			shoot()
 
 func _physics_process(delta):
+	# Код физики выполняется ТОЛЬКО у владельца Охотника
 	if not is_multiplayer_authority(): return
 
 	if not is_on_floor():
@@ -222,7 +213,6 @@ func _physics_process(delta):
 
 	var h_axis = int(Input.is_physical_key_pressed(KEY_D)) - int(Input.is_physical_key_pressed(KEY_A))
 	if h_axis == 0: h_axis = Input.get_axis("ui_left", "ui_right")
-	
 	var v_axis = int(Input.is_physical_key_pressed(KEY_S)) - int(Input.is_physical_key_pressed(KEY_W))
 	if v_axis == 0: v_axis = Input.get_axis("ui_up", "ui_down")
 
@@ -242,6 +232,31 @@ func _physics_process(delta):
 
 	move_and_slide()
 
+	# --- ЛОГИКА АНИМАЦИЙ ВЛАДЕЛЬЦА ---
+	var target_anim = "hunter/idle"
+	if not is_on_floor():
+		target_anim = "hunter/jump"
+	elif Vector2(velocity.x, velocity.z).length() > 0.1:
+		target_anim = "hunter/run"
+
+	# Если анимация изменилась — меняем её у себя и шлём сигнал остальным!
+	if current_anim_state != target_anim:
+		current_anim_state = target_anim
+		_play_anim(target_anim)
+		sync_animation.rpc(target_anim)
+
+# Сигнал, который прилетает всем клиентам (пропам) по сети
+@rpc("authority", "call_remote", "unreliable")
+func sync_animation(anim_name: String):
+	current_anim_state = anim_name
+	_play_anim(anim_name)
+
+# Безопасная функция проигрывания
+func _play_anim(name: String):
+	if anim_player and anim_player.has_animation(name):
+		anim_player.play(name)
+
+# --- БОЕВАЯ ЛОГИКА ---
 func shoot():
 	if not can_shoot: return
 	can_shoot = false 

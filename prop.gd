@@ -33,8 +33,8 @@ func _ready():
 	spring_arm.add_excluded_object(self.get_rid())
 	
 	for sync_node in find_children("*", "MultiplayerSynchronizer", true, false):
-		sync_node.replication_interval = 0.05 
-		sync_node.delta_interval = 0.05
+		sync_node.replication_interval = 0.016
+		sync_node.delta_interval = 0.016
 	
 	if is_multiplayer_authority():
 		camera.current = true

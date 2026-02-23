@@ -12,12 +12,9 @@ var result_label: Label
 var return_btn: Button
 var modern_font: SystemFont
 
-# Массив для отслеживания загрузившихся игроков
 var loaded_peers = []
 
 func _ready():
-	# ФУНДАМЕНТАЛЬНЫЙ ФИКС: Жестко задаем имя сцены. 
-	# Теперь сетевые пути (/root/Level/...) у хоста и клиента будут совпадать на 100%
 	name = "Level"
 	
 	modern_font = SystemFont.new()
@@ -27,7 +24,6 @@ func _ready():
 	setup_ui()
 	call_deferred("_notify_loaded")
 
-# СИСТЕМА РУКОПОЖАТИЯ: Игрок загрузился и сообщает об этом серверу
 func _notify_loaded():
 	print("[Level] Сцена загружена локально. Ждем остальных...")
 	if Network.is_network_active:
@@ -37,7 +33,6 @@ func _notify_loaded():
 		_spawn_all()
 		start_game()
 
-# Сервер собирает "галочки" готовности со всех игроков
 @rpc("any_peer", "call_local", "reliable")
 func register_player_loaded(peer_id: int):
 	if multiplayer.is_server():
@@ -50,7 +45,6 @@ func register_player_loaded(peer_id: int):
 			print("[Level] ВСЕ ИГРОКИ НА КАРТЕ! Запускаем спавн.")
 			do_spawn_and_start.rpc()
 
-# Сервер дает отмашку на одновременный спавн
 @rpc("authority", "call_local", "reliable")
 func do_spawn_and_start():
 	print("[Level] Получена команда на спавн от сервера!")
@@ -146,7 +140,6 @@ func check_prop_win(dying_node = null):
 		else:
 			show_game_over(false)
 
-# ФИКС МЫШИ ДЛЯ МОБИЛОК (Защита от SecurityError)
 func safe_unlock_mouse():
 	var is_mobile = OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios")
 	if not is_mobile:
@@ -259,4 +252,11 @@ func _on_return_pressed():
 @rpc("authority", "call_local", "reliable")
 func return_to_lobby():
 	safe_unlock_mouse()
+	
+	# ИСПРАВЛЕНИЕ ЦИКЛА: Сервер обнуляет готовность всех игроков перед выходом в лобби
+	if Network.is_network_active and multiplayer.is_server():
+		Network.reset_ready_states()
+	elif not Network.is_network_active:
+		Network.reset_ready_states()
+		
 	get_tree().call_deferred("change_scene_to_file", "res://lobby.tscn")

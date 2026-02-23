@@ -194,7 +194,6 @@ func _on_peer_disconnected(id):
 func spawn_player_locally(id: int, is_hunter: bool):
 	var level = get_tree().current_scene
 	
-	# ФУНДАМЕНТАЛЬНЫЙ ФИКС: Гарантируем, что игроки добавляются ТОЛЬКО в корень с именем "Level".
 	if level:
 		level.name = "Level" 
 		
@@ -209,4 +208,14 @@ func spawn_player_locally(id: int, is_hunter: bool):
 	var spawn_x = float(id % 3) * 3.0 - 3.0
 	var spawn_z = float((id * 2) % 3) * 3.0 - 3.0
 	player.position = Vector3(spawn_x, 5.0, spawn_z)
-	level.add_child(player)	
+	level.add_child(player)
+
+# ИСПРАВЛЕНИЕ: Функция для сброса готовности после игры
+func reset_ready_states():
+	if is_host_mode:
+		for id in player_data:
+			player_data[id].is_ready = false
+		_broadcast_state()
+	elif not is_network_active:
+		for id in player_data:
+			player_data[id].is_ready = false

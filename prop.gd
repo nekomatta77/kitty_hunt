@@ -9,6 +9,10 @@ var gravity = ProjectSettings.get_setting("physics/3d/default_gravity")
 var health = 100.0 
 var can_transform = true 
 
+# --- ПЕРЕМЕННЫЕ ДЛЯ ИДЕАЛЬНОЙ МОБИЛЬНОЙ КАМЕРЫ ---
+var camera_touch_index: int = -1
+var last_camera_touch_pos: Vector2 = Vector2.ZERO
+
 @onready var spring_arm = $SpringArm3D
 @onready var camera = $SpringArm3D/Camera3D
 @onready var raycast = $SpringArm3D/Camera3D/RayCast3D
@@ -130,28 +134,47 @@ func update_hp_visual(new_health: float):
 func _unhandled_input(event):
 	if not is_multiplayer_authority(): return
 		
-	var is_valid_drag = false
 	var is_mobile = OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios")
 	
 	if is_mobile:
-		if event is InputEventScreenDrag:
-			if event.position.x > get_viewport().size.x / 2.0:
-				is_valid_drag = true
-	else:
+		if event is InputEventScreenTouch:
+			if event.pressed:
+				if camera_touch_index == -1:
+					var screen_size = get_viewport().size
+					if event.position.x > screen_size.x * 0.5 and event.position.y < screen_size.y * 0.75:
+						camera_touch_index = event.index
+						last_camera_touch_pos = event.position 
+			else:
+				if event.index == camera_touch_index:
+					camera_touch_index = -1
+					
+		elif event is InputEventScreenDrag:
+			if event.index == camera_touch_index:
+				# РУЧНОЙ РАСЧЕТ ДЕЛЬТЫ
+				var manual_relative = event.position - last_camera_touch_pos
+				last_camera_touch_pos = event.position
+				
+				var mobile_sens = mouse_sensitivity * 1.5
+				rotate_y(-manual_relative.x * mobile_sens)
+				spring_arm.rotate_x(-manual_relative.y * mobile_sens)
+				spring_arm.rotation.x = clamp(spring_arm.rotation.x, deg_to_rad(-60), deg_to_rad(45))
+				
+		# Блокировка фейковой мыши
 		if event is InputEventMouseMotion:
-			is_valid_drag = true
+			get_viewport().set_input_as_handled()
+			return
 
-	if is_valid_drag:
-		rotate_y(-event.relative.x * mouse_sensitivity)
-		spring_arm.rotate_x(-event.relative.y * mouse_sensitivity)
-		spring_arm.rotation.x = clamp(spring_arm.rotation.x, deg_to_rad(-60), deg_to_rad(45))
-		
-	if event.is_action_pressed("ui_cancel"):
-		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-		
-	# ИСПРАВЛЕНИЕ: Блокируем захват мыши для мобильных устройств (защита от ошибок браузера)
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-		if not is_mobile:
+	else: 
+		# --- ЛОГИКА ДЛЯ ПК ---
+		if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
+			rotate_y(-event.relative.x * mouse_sensitivity)
+			spring_arm.rotate_x(-event.relative.y * mouse_sensitivity)
+			spring_arm.rotation.x = clamp(spring_arm.rotation.x, deg_to_rad(-60), deg_to_rad(45))
+			
+		if event.is_action_pressed("ui_cancel"):
+			Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+			
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 			if Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
 				Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 			try_transform()

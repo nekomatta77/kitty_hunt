@@ -9,6 +9,10 @@ var gravity = ProjectSettings.get_setting("physics/3d/default_gravity")
 var health = 100.0 
 var can_shoot = true 
 
+# --- ПЕРЕМЕННЫЕ ДЛЯ ИДЕАЛЬНОЙ МОБИЛЬНОЙ КАМЕРЫ ---
+var camera_touch_index: int = -1
+var last_camera_touch_pos: Vector2 = Vector2.ZERO
+
 @onready var camera = $Camera3D
 @onready var raycast = $Camera3D/RayCast3D
 @onready var mobile_ui = $MobileUI 
@@ -157,45 +161,65 @@ func update_hp_visual(new_health: float):
 func _unhandled_input(event):
 	if not is_multiplayer_authority(): return
 		
-	var is_valid_drag = false
 	var is_mobile = OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios")
 	
 	if is_mobile:
-		if event is InputEventScreenDrag:
-			if event.position.x > get_viewport().size.x / 2.0:
-				is_valid_drag = true
-	else:
+		if event is InputEventScreenTouch:
+			if event.pressed:
+				# Захватываем палец только если еще нет активного
+				if camera_touch_index == -1:
+					var screen_size = get_viewport().size
+					# ИДЕАЛЬНАЯ ЗОНА: Правая половина, верхние 75%
+					if event.position.x > screen_size.x * 0.5 and event.position.y < screen_size.y * 0.75:
+						camera_touch_index = event.index
+						last_camera_touch_pos = event.position # Запоминаем точку касания
+			else:
+				# Если отпустили именно этот палец - сбрасываем захват
+				if event.index == camera_touch_index:
+					camera_touch_index = -1
+					
+		elif event is InputEventScreenDrag:
+			if event.index == camera_touch_index:
+				# РУЧНОЙ РАСЧЕТ ДЕЛЬТЫ (Защита от дергания HTML5 WebGL)
+				var manual_relative = event.position - last_camera_touch_pos
+				last_camera_touch_pos = event.position
+				
+				# Вращаем камеру
+				var mobile_sens = mouse_sensitivity * 1.5
+				rotate_y(-manual_relative.x * mobile_sens)
+				camera.rotate_x(-manual_relative.y * mobile_sens)
+				camera.rotation.x = clamp(camera.rotation.x, deg_to_rad(-80), deg_to_rad(80))
+				
+		# ЖЕЛЕЗНАЯ ЗАЩИТА: На мобилках полностью игнорируем ложные сигналы мыши
 		if event is InputEventMouseMotion:
-			is_valid_drag = true
+			get_viewport().set_input_as_handled()
+			return
 
-	if is_valid_drag:
-		rotate_y(-event.relative.x * mouse_sensitivity)
-		camera.rotate_x(-event.relative.y * mouse_sensitivity)
-		camera.rotation.x = clamp(camera.rotation.x, deg_to_rad(-80), deg_to_rad(80))
-		
-	if event.is_action_pressed("ui_cancel"):
-		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-		
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-		if not is_mobile:
+	else: 
+		# --- ЛОГИКА ДЛЯ ПК ---
+		if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
+			rotate_y(-event.relative.x * mouse_sensitivity)
+			camera.rotate_x(-event.relative.y * mouse_sensitivity)
+			camera.rotation.x = clamp(camera.rotation.x, deg_to_rad(-80), deg_to_rad(80))
+			
+		if event.is_action_pressed("ui_cancel"):
+			Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+			
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 			if Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
 				Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 			shoot()
 
-# --- ВОТ ЭТА ФУНКЦИЯ БЫЛА ПОТЕРЯНА ---
 func _physics_process(delta):
 	if not is_multiplayer_authority(): return
 
-	# Гравитация
 	if not is_on_floor():
 		velocity.y -= gravity * delta
 
-	# Прыжок
 	if Input.is_physical_key_pressed(KEY_SPACE) or Input.is_action_just_pressed("ui_accept"):
 		if is_on_floor():
 			velocity.y = JUMP_VELOCITY
 
-	# Управление с клавиатуры (WASD / Стрелочки)
 	var h_axis = int(Input.is_physical_key_pressed(KEY_D)) - int(Input.is_physical_key_pressed(KEY_A))
 	if h_axis == 0: h_axis = Input.get_axis("ui_left", "ui_right")
 	
@@ -217,7 +241,6 @@ func _physics_process(delta):
 		velocity.z = move_toward(velocity.z, 0, current_speed)
 
 	move_and_slide()
-# -------------------------------------
 
 func shoot():
 	if not can_shoot: return
